@@ -211,7 +211,7 @@ export default function ImportDrugsModal({ categories, onClose, onSuccess }: Imp
       contraindications: [],
       dosage_adults: undefined,
       dosage_children: undefined,
-      stock_quantity: jsonDrug.available !== false ? 1 : 0, // Default to 1 unless explicitly false
+      stock_quantity: typeof jsonDrug.available === 'number' ? jsonDrug.available : 0,
       unit_price: jsonDrug.price || undefined,
       supplier: jsonDrug.supplier || undefined,
       batch_number: undefined,
