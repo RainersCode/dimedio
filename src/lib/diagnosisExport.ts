@@ -13,6 +13,9 @@ export class DiagnosisExportService {
       if (!text) return '';
       return text
         .replace(/paciÅ†as/g, 'paciņas')
+        .replace(/paciÅ†a/g, 'paciņa')
+        .replace(/trokšÅ†i/g, 'trokšņi')
+        .replace(/ķermeÅ†a/g, 'ķermeņa')
         .replace(/Å†/g, 'ņ')
         .replace(/Ä/g, 'ā')
         .replace(/Å/g, 'š')
@@ -22,7 +25,9 @@ export class DiagnosisExportService {
         .replace(/Ě/g, 'ē')
         .replace(/Ł/g, 'ļ')
         .replace(/Ū/g, 'ū')
-        .replace(/Ž/g, 'ž');
+        .replace(/Ž/g, 'ž')
+        .replace(/Ā°/g, '°') // Fix degree symbol
+        .replace(/(\d+)Ā°C/g, '$1°C'); // Fix temperature degree symbol
     };
     
     // Create compact diagnosis data - fit in half A4 page
@@ -30,6 +35,19 @@ export class DiagnosisExportService {
       ['MEDICAL DIAGNOSIS REPORT', '', '', ''],
       ['Date:', new Date(diagnosis.created_at).toLocaleDateString(), '', ''],
       ['Patient:', `${diagnosis.patient_name || ''} ${diagnosis.patient_surname || ''}`.trim() || 'Not specified', 'Age:', diagnosis.patient_age || 'N/A'],
+      // Add vital signs if available
+      ...(diagnosis.blood_pressure_systolic || diagnosis.heart_rate || diagnosis.temperature ? [
+        ['Vital Signs:', 
+         fixEncoding([
+           diagnosis.blood_pressure_systolic && diagnosis.blood_pressure_diastolic ? `BP: ${diagnosis.blood_pressure_systolic}/${diagnosis.blood_pressure_diastolic} mmHg` : '',
+           diagnosis.heart_rate ? `HR: ${diagnosis.heart_rate} bpm` : '',
+           diagnosis.temperature ? `Temp: ${diagnosis.temperature}°C` : '',
+           diagnosis.respiratory_rate ? `RR: ${diagnosis.respiratory_rate}/min` : '',
+           diagnosis.oxygen_saturation ? `SpO2: ${diagnosis.oxygen_saturation}%` : '',
+           diagnosis.weight ? `Weight: ${diagnosis.weight} kg` : '',
+           diagnosis.height ? `Height: ${diagnosis.height} cm` : ''
+         ].filter(Boolean).join(', ')), '', '']
+      ] : []),
       ['Complaint:', fixEncoding(diagnosis.improved_patient_history || diagnosis.complaint), '', ''],
       ['Primary Diagnosis:', fixEncoding(diagnosis.primary_diagnosis || 'Pending evaluation'), '', ''],
       ...(diagnosis.differential_diagnoses && diagnosis.differential_diagnoses.length > 0 ? [
@@ -111,6 +129,9 @@ export class DiagnosisExportService {
       // First fix common encoding corruption issues for Latvian
       let fixedText = text
         .replace(/paciÅ†as/g, 'pacinas')
+        .replace(/paciÅ†a/g, 'pacina')
+        .replace(/trokšÅ†i/g, 'troksni')
+        .replace(/ķermeÅ†a/g, 'kermena')
         .replace(/Å†/g, 'n')
         .replace(/Ä/g, 'a')
         .replace(/Å/g, 's')
@@ -120,7 +141,9 @@ export class DiagnosisExportService {
         .replace(/Ě/g, 'e')
         .replace(/Ł/g, 'l')
         .replace(/Ū/g, 'u')
-        .replace(/Ž/g, 'z');
+        .replace(/Ž/g, 'z')
+        .replace(/Ā°/g, '') // Remove problematic degree symbol for PDF
+        .replace(/(\d+)Ā°C/g, '$1C'); // Fix temperature
       
       // Replace problematic Unicode characters with closest ASCII equivalents for PDF compatibility
       return fixedText
@@ -161,6 +184,21 @@ export class DiagnosisExportService {
     addCompactField('Date', new Date(diagnosis.created_at).toLocaleDateString());
     addCompactField('Patient', `${diagnosis.patient_name || ''} ${diagnosis.patient_surname || ''}`.trim() || 'Not specified');
     if (diagnosis.patient_age) addCompactField('Age', diagnosis.patient_age.toString());
+    
+    // Add vital signs if available
+    if (diagnosis.blood_pressure_systolic || diagnosis.heart_rate || diagnosis.temperature) {
+      const vitalSigns = [
+        diagnosis.blood_pressure_systolic && diagnosis.blood_pressure_diastolic ? `BP: ${diagnosis.blood_pressure_systolic}/${diagnosis.blood_pressure_diastolic} mmHg` : '',
+        diagnosis.heart_rate ? `HR: ${diagnosis.heart_rate} bpm` : '',
+        diagnosis.temperature ? sanitizeText(`Temp: ${diagnosis.temperature}°C`) : '',
+        diagnosis.respiratory_rate ? `RR: ${diagnosis.respiratory_rate}/min` : '',
+        diagnosis.oxygen_saturation ? `SpO2: ${diagnosis.oxygen_saturation}%` : '',
+        diagnosis.weight ? `Weight: ${diagnosis.weight} kg` : '',
+        diagnosis.height ? `Height: ${diagnosis.height} cm` : ''
+      ].filter(Boolean).join(', ');
+      addCompactField('Vital Signs', vitalSigns);
+    }
+    
     addCompactField('Complaint', diagnosis.improved_patient_history || diagnosis.complaint);
     addCompactField('Primary Diagnosis', diagnosis.primary_diagnosis || 'Pending evaluation');
     if (diagnosis.differential_diagnoses && diagnosis.differential_diagnoses.length > 0) {
@@ -219,6 +257,9 @@ export class DiagnosisExportService {
       // First fix common encoding corruption issues for Latvian
       let fixedText = text
         .replace(/paciÅ†as/g, 'paciņas')
+        .replace(/paciÅ†a/g, 'paciņa')
+        .replace(/trokšÅ†i/g, 'trokšņi')
+        .replace(/ķermeÅ†a/g, 'ķermeņa')
         .replace(/Å†/g, 'ņ')
         .replace(/Ä/g, 'ā')
         .replace(/Å/g, 'š')
@@ -228,7 +269,9 @@ export class DiagnosisExportService {
         .replace(/Ě/g, 'ē')
         .replace(/Ł/g, 'ļ')
         .replace(/Ū/g, 'ū')
-        .replace(/Ž/g, 'ž');
+        .replace(/Ž/g, 'ž')
+        .replace(/Ā°/g, '°') // Fix degree symbol
+        .replace(/(\d+)Ā°C/g, '$1°C'); // Fix temperature
       
       return fixedText
         .replace(/\\/g, '\\\\')
@@ -278,6 +321,16 @@ export class DiagnosisExportService {
 {\\b Date:} ${escapeRtfText(new Date(diagnosis.created_at).toLocaleDateString())}\\par
 {\\b Patient:} ${escapeRtfText(`${diagnosis.patient_name || ''} ${diagnosis.patient_surname || ''}`.trim() || 'Not specified')}\\par
 ${diagnosis.patient_age ? `{\\b Age:} ${diagnosis.patient_age}\\par` : ''}
+${(diagnosis.blood_pressure_systolic || diagnosis.heart_rate || diagnosis.temperature) ? 
+  `{\\b Vital Signs:} ${escapeRtfText([
+    diagnosis.blood_pressure_systolic && diagnosis.blood_pressure_diastolic ? `BP: ${diagnosis.blood_pressure_systolic}/${diagnosis.blood_pressure_diastolic} mmHg` : '',
+    diagnosis.heart_rate ? `HR: ${diagnosis.heart_rate} bpm` : '',
+    diagnosis.temperature ? `Temp: ${diagnosis.temperature}°C` : '',
+    diagnosis.respiratory_rate ? `RR: ${diagnosis.respiratory_rate}/min` : '',
+    diagnosis.oxygen_saturation ? `SpO2: ${diagnosis.oxygen_saturation}%` : '',
+    diagnosis.weight ? `Weight: ${diagnosis.weight} kg` : '',
+    diagnosis.height ? `Height: ${diagnosis.height} cm` : ''
+  ].filter(Boolean).join(', '))}\\par` : ''}
 {\\b Complaint:} ${escapeRtfText(diagnosis.improved_patient_history || diagnosis.complaint)}\\par
 {\\b Primary Diagnosis:} ${escapeRtfText(diagnosis.primary_diagnosis || 'Pending evaluation')}\\par
 ${diagnosis.differential_diagnoses && diagnosis.differential_diagnoses.length > 0 ? `{\\b Differential Diagnoses:} ${escapeRtfText(diagnosis.differential_diagnoses.join(', '))}\\par` : ''}
