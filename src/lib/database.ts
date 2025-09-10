@@ -113,6 +113,81 @@ export class DatabaseService {
     return { data, error: null };
   }
 
+  // Update diagnosis with manual edits
+  static async updateDiagnosisManually(
+    diagnosisId: string, 
+    editedData: Partial<Diagnosis>
+  ): Promise<{ data: Diagnosis | null; error: string | null }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated' };
+    }
+
+    // Only allow updating certain fields that can be manually edited
+    const allowedFields = {
+      // Diagnosis fields
+      primary_diagnosis: editedData.primary_diagnosis,
+      differential_diagnoses: editedData.differential_diagnoses,
+      recommended_actions: editedData.recommended_actions,
+      treatment: editedData.treatment,
+      improved_patient_history: editedData.improved_patient_history,
+      
+      // Patient Information
+      patient_age: editedData.patient_age,
+      patient_gender: editedData.patient_gender,
+      patient_name: editedData.patient_name,
+      patient_surname: editedData.patient_surname,
+      patient_id: editedData.patient_id,
+      date_of_birth: editedData.date_of_birth,
+      weight: editedData.weight,
+      height: editedData.height,
+      
+      // Vital Signs
+      blood_pressure_systolic: editedData.blood_pressure_systolic,
+      blood_pressure_diastolic: editedData.blood_pressure_diastolic,
+      heart_rate: editedData.heart_rate,
+      temperature: editedData.temperature,
+      respiratory_rate: editedData.respiratory_rate,
+      oxygen_saturation: editedData.oxygen_saturation,
+      complaint_duration: editedData.complaint_duration,
+      pain_scale: editedData.pain_scale,
+      symptom_onset: editedData.symptom_onset,
+      
+      // Medical History
+      allergies: editedData.allergies,
+      current_medications: editedData.current_medications,
+      chronic_conditions: editedData.chronic_conditions,
+      previous_surgeries: editedData.previous_surgeries,
+      previous_injuries: editedData.previous_injuries,
+      associated_symptoms: editedData.associated_symptoms,
+      
+      // Drug Recommendations
+      inventory_drugs: editedData.inventory_drugs,
+      additional_therapy: editedData.additional_therapy,
+    };
+
+    // Remove undefined fields
+    const updateData = Object.fromEntries(
+      Object.entries(allowedFields).filter(([_, value]) => value !== undefined)
+    );
+
+    const { data, error } = await supabase
+      .from('diagnoses')
+      .update(updateData)
+      .eq('id', diagnosisId)
+      .eq('user_id', user.id) // Ensure user can only update their own diagnoses
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Database update error:', error);
+      return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+  }
+
   // Get user's diagnoses
   static async getUserDiagnoses(limit = 50, offset = 0): Promise<{ data: Diagnosis[] | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();

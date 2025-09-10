@@ -3,9 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { DatabaseService, N8nService } from '@/lib/database';
-import { DiagnosisFormData } from '@/types/database';
+import { DiagnosisFormData, UserDrugInventory } from '@/types/database';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { CreditsService } from '@/lib/credits';
+import { DrugInventoryService } from '@/lib/drugInventory';
 import DiagnosisDebug from './DiagnosisDebug';
 
 interface DiagnosisFormProps {
@@ -59,6 +60,8 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
   const [diagnosisResult, setDiagnosisResult] = useState<any>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedDiagnosis, setEditedDiagnosis] = useState<any>(null);
   const [creditInfo, setCreditInfo] = useState<{
     canUse: boolean;
     reason: string;
@@ -67,6 +70,9 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     isAdmin: boolean;
   } | null>(null);
   const [checkingCredits, setCheckingCredits] = useState(true);
+  const [userDrugInventory, setUserDrugInventory] = useState<UserDrugInventory[]>([]);
+  const [drugSearchResults, setDrugSearchResults] = useState<UserDrugInventory[]>([]);
+  const [showDrugSuggestions, setShowDrugSuggestions] = useState<{[key: string]: boolean}>({});
   
   // Collapsible sections state
   const [expandedSections, setExpandedSections] = useState({
@@ -113,6 +119,162 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
     runStep();
   };
+
+  // Edit mode functions
+  const startEditing = () => {
+    setIsEditing(true);
+    // Deep clone the diagnosis result to avoid reference issues with nested objects/arrays
+    setEditedDiagnosis({
+      ...diagnosisResult,
+      inventory_drugs: diagnosisResult.inventory_drugs ? [...diagnosisResult.inventory_drugs.map(drug => ({ ...drug }))] : [],
+      additional_therapy: diagnosisResult.additional_therapy ? [...diagnosisResult.additional_therapy.map(drug => ({ ...drug }))] : [],
+      differential_diagnoses: diagnosisResult.differential_diagnoses ? [...diagnosisResult.differential_diagnoses] : [],
+      recommended_actions: diagnosisResult.recommended_actions ? [...diagnosisResult.recommended_actions] : [],
+      treatment: diagnosisResult.treatment ? [...diagnosisResult.treatment] : [],
+    });
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    setEditedDiagnosis(null);
+  };
+
+  const saveEditing = async () => {
+    if (!editedDiagnosis) return;
+    
+    try {
+      setLoading(true);
+      
+      // Update the diagnosis in the database with manual edits
+      const { data: updatedDiagnosis, error: updateError } = await DatabaseService.updateDiagnosisManually(
+        editedDiagnosis.id,
+        editedDiagnosis
+      );
+
+      if (updateError) {
+        setError('Failed to save changes: ' + updateError);
+      } else if (updatedDiagnosis) {
+        setDiagnosisResult(updatedDiagnosis);
+        setIsEditing(false);
+        setEditedDiagnosis(null);
+      }
+    } catch (err) {
+      setError('Failed to save changes');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateEditedField = (field: string, value: any) => {
+    setEditedDiagnosis((prev: any) => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const addArrayItem = (field: string, item: string) => {
+    setEditedDiagnosis((prev: any) => ({
+      ...prev,
+      [field]: [...(prev[field] || []), item]
+    }));
+  };
+
+  const removeArrayItem = (field: string, index: number) => {
+    setEditedDiagnosis((prev: any) => ({
+      ...prev,
+      [field]: prev[field].filter((_: any, i: number) => i !== index)
+    }));
+  };
+
+  const updateArrayItem = (field: string, index: number, value: string) => {
+    setEditedDiagnosis((prev: any) => ({
+      ...prev,
+      [field]: prev[field].map((item: any, i: number) => i === index ? value : item)
+    }));
+  };
+
+  // Drug-specific functions for handling complex drug objects
+  const addDrugItem = (field: string) => {
+    const newDrug = {
+      drug_name: '',
+      dosage: '',
+      duration: '',
+      instructions: '',
+      therapeutic_class: '',
+      clinical_rationale: '',
+      prescription_required: false
+    };
+    setEditedDiagnosis((prev: any) => ({
+      ...prev,
+      [field]: [...(prev[field] || []), newDrug]
+    }));
+  };
+
+  const removeDrugItem = (field: string, index: number) => {
+    setEditedDiagnosis((prev: any) => ({
+      ...prev,
+      [field]: prev[field].filter((_: any, i: number) => i !== index)
+    }));
+  };
+
+  const updateDrugItem = (field: string, index: number, drugField: string, value: any) => {
+    setEditedDiagnosis((prev: any) => ({
+      ...prev,
+      [field]: prev[field].map((drug: any, i: number) => 
+        i === index 
+          ? { ...drug, [drugField]: value }
+          : drug
+      )
+    }));
+  };
+
+  // Drug search and autocomplete functions
+  const fetchUserDrugInventory = async () => {
+    try {
+      const { data, error } = await DrugInventoryService.getUserDrugInventory();
+      if (data && !error) {
+        setUserDrugInventory(data);
+      }
+    } catch (err) {
+      console.log('Could not fetch drug inventory:', err);
+    }
+  };
+
+  const searchDrugs = (query: string, fieldKey: string) => {
+    if (!query.trim() || query.length < 2) {
+      setDrugSearchResults([]);
+      setShowDrugSuggestions(prev => ({ ...prev, [fieldKey]: false }));
+      return;
+    }
+
+    const filtered = userDrugInventory.filter(drug => 
+      drug.drug_name.toLowerCase().includes(query.toLowerCase()) ||
+      (drug.generic_name && drug.generic_name.toLowerCase().includes(query.toLowerCase())) ||
+      (drug.brand_name && drug.brand_name.toLowerCase().includes(query.toLowerCase()))
+    ).slice(0, 5); // Limit to 5 suggestions
+
+    setDrugSearchResults(filtered);
+    setShowDrugSuggestions(prev => ({ ...prev, [fieldKey]: filtered.length > 0 }));
+  };
+
+  const selectDrug = (drug: UserDrugInventory, field: string, index: number) => {
+    // Populate the drug fields from inventory
+    updateDrugItem(field, index, 'drug_name', drug.drug_name);
+    if (drug.dosage_adults) updateDrugItem(field, index, 'dosage', drug.dosage_adults);
+    if (drug.active_ingredient) updateDrugItem(field, index, 'therapeutic_class', drug.active_ingredient);
+    updateDrugItem(field, index, 'prescription_required', drug.is_prescription_only);
+    
+    // Clear suggestions
+    setDrugSearchResults([]);
+    setShowDrugSuggestions(prev => ({ ...prev, [`${field}_${index}`]: false }));
+  };
+
+  // Load drug inventory when editing starts
+  useEffect(() => {
+    if (isEditing && userDrugInventory.length === 0) {
+      fetchUserDrugInventory();
+    }
+  }, [isEditing]);
 
   // Check credits when component mounts or user changes
   useEffect(() => {
@@ -265,291 +427,1027 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <h2 className="text-2xl font-semibold text-slate-900 mb-2">Diagnosis Complete</h2>
-          <p className="text-slate-600">AI analysis has been completed for your patient.</p>
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <h2 className="text-2xl font-semibold text-slate-900">Diagnosis Complete</h2>
+            {!isEditing ? (
+              <button
+                onClick={startEditing}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Edit Diagnosis
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={saveEditing}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Save Changes
+                </button>
+                <button
+                  onClick={cancelEditing}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+          <p className="text-slate-600">
+            {isEditing ? 'Edit the diagnosis details below and save your changes.' : 'AI analysis has been completed for your patient.'}
+          </p>
         </div>
 
         <div className="space-y-6">
           {/* Patient History (AI Improved) */}
-          {diagnosisResult.improved_patient_history && (
+          {(diagnosisResult.improved_patient_history || isEditing) && (
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
               <h3 className="font-semibold text-slate-900 mb-2">📋 Patient History</h3>
-              <p className="text-slate-700">{diagnosisResult.improved_patient_history}</p>
-              <div className="text-xs text-slate-500 mt-2 italic">
-                ✨ Grammar and clarity improved by AI from original complaint
-              </div>
+              {isEditing ? (
+                <div>
+                  <textarea
+                    value={editedDiagnosis?.improved_patient_history || ''}
+                    onChange={(e) => updateEditedField('improved_patient_history', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                    rows={4}
+                    placeholder="Enter improved patient history..."
+                  />
+                  <div className="text-xs text-slate-500 mt-2 italic">
+                    ✏️ Edit the patient history to improve grammar and medical accuracy
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-slate-700">{diagnosisResult.improved_patient_history}</p>
+                  <div className="text-xs text-slate-500 mt-2 italic">
+                    ✨ Grammar and clarity improved by AI from original complaint
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* Patient Information Summary */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h3 className="font-semibold text-blue-900 mb-3">👤 Patient Information</h3>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-              {/* Basic Info */}
-              {(diagnosisResult.patient_age || diagnosisResult.patient_gender) && (
-                <div>
-                  <span className="font-medium text-blue-800">Demographics:</span>
-                  <div className="text-blue-700">
-                    {diagnosisResult.patient_age && `Age: ${diagnosisResult.patient_age}`}
-                    {diagnosisResult.patient_age && diagnosisResult.patient_gender && ', '}
-                    {diagnosisResult.patient_gender && `Gender: ${diagnosisResult.patient_gender}`}
-                  </div>
-                </div>
-              )}
-              
-              {/* Patient Details */}
-              {(diagnosisResult.patient_name || diagnosisResult.patient_surname || diagnosisResult.patient_id) && (
-                <div>
-                  <span className="font-medium text-blue-800">Identity:</span>
-                  <div className="text-blue-700">
-                    {(diagnosisResult.patient_name || diagnosisResult.patient_surname) && 
-                      `${diagnosisResult.patient_name || ''} ${diagnosisResult.patient_surname || ''}`.trim()
-                    }
-                    {diagnosisResult.patient_id && (
-                      <div>ID: {diagnosisResult.patient_id}</div>
-                    )}
-                    {diagnosisResult.date_of_birth && (
-                      <div>DOB: {diagnosisResult.date_of_birth}</div>
-                    )}
-                  </div>
-                </div>
-              )}
-              
-              {/* Physical Measurements */}
-              {(diagnosisResult.weight || diagnosisResult.height) && (
-                <div>
-                  <span className="font-medium text-blue-800">Physical:</span>
-                  <div className="text-blue-700">
-                    {diagnosisResult.weight && `Weight: ${diagnosisResult.weight}kg`}
-                    {diagnosisResult.weight && diagnosisResult.height && ', '}
-                    {diagnosisResult.height && `Height: ${diagnosisResult.height}cm`}
-                    {diagnosisResult.weight && diagnosisResult.height && (
-                      <div>BMI: {(diagnosisResult.weight / Math.pow(diagnosisResult.height / 100, 2)).toFixed(1)}</div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Vital Signs */}
-          {(diagnosisResult.blood_pressure_systolic || diagnosisResult.heart_rate || diagnosisResult.temperature || 
-            diagnosisResult.respiratory_rate || diagnosisResult.oxygen_saturation) && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <h3 className="font-semibold text-red-900 mb-3">🩺 Vital Signs</h3>
+            {isEditing ? (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-                {(diagnosisResult.blood_pressure_systolic || diagnosisResult.blood_pressure_diastolic) && (
+                {/* Demographics */}
+                <div>
+                  <span className="font-medium text-blue-800 block mb-2">Demographics:</span>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs text-blue-600">Age:</label>
+                      <input
+                        type="number"
+                        value={editedDiagnosis?.patient_age || ''}
+                        onChange={(e) => updateEditedField('patient_age', e.target.value ? parseInt(e.target.value) : null)}
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
+                        placeholder="Age"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-blue-600">Gender:</label>
+                      <select
+                        value={editedDiagnosis?.patient_gender || ''}
+                        onChange={(e) => updateEditedField('patient_gender', e.target.value || null)}
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
+                      >
+                        <option value="">Select gender</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Identity */}
+                <div>
+                  <span className="font-medium text-blue-800 block mb-2">Identity:</span>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs text-blue-600">First Name:</label>
+                      <input
+                        type="text"
+                        value={editedDiagnosis?.patient_name || ''}
+                        onChange={(e) => updateEditedField('patient_name', e.target.value || null)}
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
+                        placeholder="First name"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-blue-600">Last Name:</label>
+                      <input
+                        type="text"
+                        value={editedDiagnosis?.patient_surname || ''}
+                        onChange={(e) => updateEditedField('patient_surname', e.target.value || null)}
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
+                        placeholder="Last name"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-blue-600">Patient ID:</label>
+                      <input
+                        type="text"
+                        value={editedDiagnosis?.patient_id || ''}
+                        onChange={(e) => updateEditedField('patient_id', e.target.value || null)}
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
+                        placeholder="Patient ID"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-blue-600">Date of Birth:</label>
+                      <input
+                        type="date"
+                        value={editedDiagnosis?.date_of_birth || ''}
+                        onChange={(e) => updateEditedField('date_of_birth', e.target.value || null)}
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Physical Measurements */}
+                <div>
+                  <span className="font-medium text-blue-800 block mb-2">Physical:</span>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs text-blue-600">Weight (kg):</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={editedDiagnosis?.weight || ''}
+                        onChange={(e) => updateEditedField('weight', e.target.value ? parseFloat(e.target.value) : null)}
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
+                        placeholder="Weight"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-blue-600">Height (cm):</label>
+                      <input
+                        type="number"
+                        value={editedDiagnosis?.height || ''}
+                        onChange={(e) => updateEditedField('height', e.target.value ? parseInt(e.target.value) : null)}
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
+                        placeholder="Height"
+                      />
+                    </div>
+                    {editedDiagnosis?.weight && editedDiagnosis?.height && (
+                      <div className="text-xs text-blue-600">
+                        BMI: {(editedDiagnosis.weight / Math.pow(editedDiagnosis.height / 100, 2)).toFixed(1)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                {/* Basic Info */}
+                {(diagnosisResult.patient_age || diagnosisResult.patient_gender) && (
                   <div>
-                    <span className="font-medium text-red-800">Blood Pressure:</span>
-                    <div className="text-red-700">
-                      {diagnosisResult.blood_pressure_systolic || '?'}/{diagnosisResult.blood_pressure_diastolic || '?'} mmHg
+                    <span className="font-medium text-blue-800">Demographics:</span>
+                    <div className="text-blue-700">
+                      {diagnosisResult.patient_age && `Age: ${diagnosisResult.patient_age}`}
+                      {diagnosisResult.patient_age && diagnosisResult.patient_gender && ', '}
+                      {diagnosisResult.patient_gender && `Gender: ${diagnosisResult.patient_gender}`}
                     </div>
                   </div>
                 )}
                 
-                {diagnosisResult.heart_rate && (
+                {/* Patient Details */}
+                {(diagnosisResult.patient_name || diagnosisResult.patient_surname || diagnosisResult.patient_id) && (
                   <div>
-                    <span className="font-medium text-red-800">Heart Rate:</span>
-                    <div className="text-red-700">{diagnosisResult.heart_rate} BPM</div>
-                  </div>
-                )}
-                
-                {diagnosisResult.temperature && (
-                  <div>
-                    <span className="font-medium text-red-800">Temperature:</span>
-                    <div className="text-red-700">{diagnosisResult.temperature}°C</div>
-                  </div>
-                )}
-                
-                {diagnosisResult.respiratory_rate && (
-                  <div>
-                    <span className="font-medium text-red-800">Respiratory Rate:</span>
-                    <div className="text-red-700">{diagnosisResult.respiratory_rate}/min</div>
-                  </div>
-                )}
-                
-                {diagnosisResult.oxygen_saturation && (
-                  <div>
-                    <span className="font-medium text-red-800">O₂ Saturation:</span>
-                    <div className="text-red-700">{diagnosisResult.oxygen_saturation}%</div>
-                  </div>
-                )}
-                
-                {(diagnosisResult.complaint_duration || diagnosisResult.pain_scale) && (
-                  <div>
-                    <span className="font-medium text-red-800">Clinical:</span>
-                    <div className="text-red-700">
-                      {diagnosisResult.complaint_duration && `Duration: ${diagnosisResult.complaint_duration}`}
-                      {diagnosisResult.pain_scale !== undefined && diagnosisResult.pain_scale !== null && (
-                        <div>Pain: {diagnosisResult.pain_scale}/10</div>
+                    <span className="font-medium text-blue-800">Identity:</span>
+                    <div className="text-blue-700">
+                      {(diagnosisResult.patient_name || diagnosisResult.patient_surname) && 
+                        `${diagnosisResult.patient_name || ''} ${diagnosisResult.patient_surname || ''}`.trim()
+                      }
+                      {diagnosisResult.patient_id && (
+                        <div>ID: {diagnosisResult.patient_id}</div>
                       )}
-                      {diagnosisResult.symptom_onset && (
-                        <div>Onset: {diagnosisResult.symptom_onset}</div>
+                      {diagnosisResult.date_of_birth && (
+                        <div>DOB: {diagnosisResult.date_of_birth}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Physical Measurements */}
+                {(diagnosisResult.weight || diagnosisResult.height) && (
+                  <div>
+                    <span className="font-medium text-blue-800">Physical:</span>
+                    <div className="text-blue-700">
+                      {diagnosisResult.weight && `Weight: ${diagnosisResult.weight}kg`}
+                      {diagnosisResult.weight && diagnosisResult.height && ', '}
+                      {diagnosisResult.height && `Height: ${diagnosisResult.height}cm`}
+                      {diagnosisResult.weight && diagnosisResult.height && (
+                        <div>BMI: {(diagnosisResult.weight / Math.pow(diagnosisResult.height / 100, 2)).toFixed(1)}</div>
                       )}
                     </div>
                   </div>
                 )}
               </div>
+            )}
+          </div>
+
+          {/* Vital Signs */}
+          {((diagnosisResult.blood_pressure_systolic || diagnosisResult.heart_rate || diagnosisResult.temperature || 
+            diagnosisResult.respiratory_rate || diagnosisResult.oxygen_saturation || 
+            diagnosisResult.complaint_duration || diagnosisResult.pain_scale) || isEditing) && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <h3 className="font-semibold text-red-900 mb-3">🩺 Vital Signs</h3>
+              {isEditing ? (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                  {/* Blood Pressure */}
+                  <div>
+                    <span className="font-medium text-red-800 block mb-2">Blood Pressure:</span>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-xs text-red-600">Systolic (mmHg):</label>
+                        <input
+                          type="number"
+                          value={editedDiagnosis?.blood_pressure_systolic || ''}
+                          onChange={(e) => updateEditedField('blood_pressure_systolic', e.target.value ? parseInt(e.target.value) : null)}
+                          className="w-full p-1 border border-red-300 rounded text-red-800 text-sm"
+                          placeholder="Systolic"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-red-600">Diastolic (mmHg):</label>
+                        <input
+                          type="number"
+                          value={editedDiagnosis?.blood_pressure_diastolic || ''}
+                          onChange={(e) => updateEditedField('blood_pressure_diastolic', e.target.value ? parseInt(e.target.value) : null)}
+                          className="w-full p-1 border border-red-300 rounded text-red-800 text-sm"
+                          placeholder="Diastolic"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Heart Rate & Temperature */}
+                  <div>
+                    <span className="font-medium text-red-800 block mb-2">Vitals:</span>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-xs text-red-600">Heart Rate (BPM):</label>
+                        <input
+                          type="number"
+                          value={editedDiagnosis?.heart_rate || ''}
+                          onChange={(e) => updateEditedField('heart_rate', e.target.value ? parseInt(e.target.value) : null)}
+                          className="w-full p-1 border border-red-300 rounded text-red-800 text-sm"
+                          placeholder="Heart rate"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-red-600">Temperature (°C):</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={editedDiagnosis?.temperature || ''}
+                          onChange={(e) => updateEditedField('temperature', e.target.value ? parseFloat(e.target.value) : null)}
+                          className="w-full p-1 border border-red-300 rounded text-red-800 text-sm"
+                          placeholder="Temperature"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-red-600">Respiratory Rate (/min):</label>
+                        <input
+                          type="number"
+                          value={editedDiagnosis?.respiratory_rate || ''}
+                          onChange={(e) => updateEditedField('respiratory_rate', e.target.value ? parseInt(e.target.value) : null)}
+                          className="w-full p-1 border border-red-300 rounded text-red-800 text-sm"
+                          placeholder="Respiratory rate"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-red-600">O₂ Saturation (%):</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={editedDiagnosis?.oxygen_saturation || ''}
+                          onChange={(e) => updateEditedField('oxygen_saturation', e.target.value ? parseInt(e.target.value) : null)}
+                          className="w-full p-1 border border-red-300 rounded text-red-800 text-sm"
+                          placeholder="O₂ saturation"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Clinical Information */}
+                  <div>
+                    <span className="font-medium text-red-800 block mb-2">Clinical:</span>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-xs text-red-600">Duration:</label>
+                        <input
+                          type="text"
+                          value={editedDiagnosis?.complaint_duration || ''}
+                          onChange={(e) => updateEditedField('complaint_duration', e.target.value || null)}
+                          className="w-full p-1 border border-red-300 rounded text-red-800 text-sm"
+                          placeholder="Duration"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-red-600">Pain Scale (0-10):</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="10"
+                          value={editedDiagnosis?.pain_scale || ''}
+                          onChange={(e) => updateEditedField('pain_scale', e.target.value ? parseInt(e.target.value) : null)}
+                          className="w-full p-1 border border-red-300 rounded text-red-800 text-sm"
+                          placeholder="Pain scale"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-red-600">Symptom Onset:</label>
+                        <select
+                          value={editedDiagnosis?.symptom_onset || ''}
+                          onChange={(e) => updateEditedField('symptom_onset', e.target.value || null)}
+                          className="w-full p-1 border border-red-300 rounded text-red-800 text-sm"
+                        >
+                          <option value="">Select onset</option>
+                          <option value="sudden">Sudden</option>
+                          <option value="gradual">Gradual</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                  {(diagnosisResult.blood_pressure_systolic || diagnosisResult.blood_pressure_diastolic) && (
+                    <div>
+                      <span className="font-medium text-red-800">Blood Pressure:</span>
+                      <div className="text-red-700">
+                        {diagnosisResult.blood_pressure_systolic || '?'}/{diagnosisResult.blood_pressure_diastolic || '?'} mmHg
+                      </div>
+                    </div>
+                  )}
+                  
+                  {diagnosisResult.heart_rate && (
+                    <div>
+                      <span className="font-medium text-red-800">Heart Rate:</span>
+                      <div className="text-red-700">{diagnosisResult.heart_rate} BPM</div>
+                    </div>
+                  )}
+                  
+                  {diagnosisResult.temperature && (
+                    <div>
+                      <span className="font-medium text-red-800">Temperature:</span>
+                      <div className="text-red-700">{diagnosisResult.temperature}°C</div>
+                    </div>
+                  )}
+                  
+                  {diagnosisResult.respiratory_rate && (
+                    <div>
+                      <span className="font-medium text-red-800">Respiratory Rate:</span>
+                      <div className="text-red-700">{diagnosisResult.respiratory_rate}/min</div>
+                    </div>
+                  )}
+                  
+                  {diagnosisResult.oxygen_saturation && (
+                    <div>
+                      <span className="font-medium text-red-800">O₂ Saturation:</span>
+                      <div className="text-red-700">{diagnosisResult.oxygen_saturation}%</div>
+                    </div>
+                  )}
+                  
+                  {(diagnosisResult.complaint_duration || diagnosisResult.pain_scale) && (
+                    <div>
+                      <span className="font-medium text-red-800">Clinical:</span>
+                      <div className="text-red-700">
+                        {diagnosisResult.complaint_duration && `Duration: ${diagnosisResult.complaint_duration}`}
+                        {diagnosisResult.pain_scale !== undefined && diagnosisResult.pain_scale !== null && (
+                          <div>Pain: {diagnosisResult.pain_scale}/10</div>
+                        )}
+                        {diagnosisResult.symptom_onset && (
+                          <div>Onset: {diagnosisResult.symptom_onset}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {/* Medical History */}
-          {(diagnosisResult.allergies || diagnosisResult.current_medications || diagnosisResult.chronic_conditions || 
-            diagnosisResult.previous_surgeries || diagnosisResult.previous_injuries) && (
+          {((diagnosisResult.allergies || diagnosisResult.current_medications || diagnosisResult.chronic_conditions || 
+            diagnosisResult.previous_surgeries || diagnosisResult.previous_injuries || diagnosisResult.associated_symptoms) || isEditing) && (
             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
               <h3 className="font-semibold text-orange-900 mb-3">📋 Medical History</h3>
-              <div className="space-y-3 text-sm">
-                {diagnosisResult.allergies && (
+              {isEditing ? (
+                <div className="space-y-3 text-sm">
                   <div>
-                    <span className="font-medium text-orange-800">⚠️ Allergies:</span>
-                    <div className="text-orange-700 mt-1">{diagnosisResult.allergies}</div>
+                    <label className="font-medium text-orange-800 block mb-1">⚠️ Allergies:</label>
+                    <textarea
+                      value={editedDiagnosis?.allergies || ''}
+                      onChange={(e) => updateEditedField('allergies', e.target.value || null)}
+                      className="w-full p-2 border border-orange-300 rounded text-orange-800 resize-none"
+                      rows={2}
+                      placeholder="Enter allergies..."
+                    />
                   </div>
-                )}
-                
-                {diagnosisResult.current_medications && (
+                  
                   <div>
-                    <span className="font-medium text-orange-800">💊 Current Medications:</span>
-                    <div className="text-orange-700 mt-1">{diagnosisResult.current_medications}</div>
+                    <label className="font-medium text-orange-800 block mb-1">💊 Current Medications:</label>
+                    <textarea
+                      value={editedDiagnosis?.current_medications || ''}
+                      onChange={(e) => updateEditedField('current_medications', e.target.value || null)}
+                      className="w-full p-2 border border-orange-300 rounded text-orange-800 resize-none"
+                      rows={2}
+                      placeholder="Enter current medications..."
+                    />
                   </div>
-                )}
-                
-                {diagnosisResult.chronic_conditions && (
+                  
                   <div>
-                    <span className="font-medium text-orange-800">🩺 Chronic Conditions:</span>
-                    <div className="text-orange-700 mt-1">{diagnosisResult.chronic_conditions}</div>
+                    <label className="font-medium text-orange-800 block mb-1">🩺 Chronic Conditions:</label>
+                    <textarea
+                      value={editedDiagnosis?.chronic_conditions || ''}
+                      onChange={(e) => updateEditedField('chronic_conditions', e.target.value || null)}
+                      className="w-full p-2 border border-orange-300 rounded text-orange-800 resize-none"
+                      rows={2}
+                      placeholder="Enter chronic conditions..."
+                    />
                   </div>
-                )}
-                
-                {diagnosisResult.previous_surgeries && (
+                  
                   <div>
-                    <span className="font-medium text-orange-800">🏥 Previous Surgeries:</span>
-                    <div className="text-orange-700 mt-1">{diagnosisResult.previous_surgeries}</div>
+                    <label className="font-medium text-orange-800 block mb-1">🏥 Previous Surgeries:</label>
+                    <textarea
+                      value={editedDiagnosis?.previous_surgeries || ''}
+                      onChange={(e) => updateEditedField('previous_surgeries', e.target.value || null)}
+                      className="w-full p-2 border border-orange-300 rounded text-orange-800 resize-none"
+                      rows={2}
+                      placeholder="Enter previous surgeries..."
+                    />
                   </div>
-                )}
-                
-                {diagnosisResult.previous_injuries && (
+                  
                   <div>
-                    <span className="font-medium text-orange-800">🩹 Previous Injuries:</span>
-                    <div className="text-orange-700 mt-1">{diagnosisResult.previous_injuries}</div>
+                    <label className="font-medium text-orange-800 block mb-1">🩹 Previous Injuries:</label>
+                    <textarea
+                      value={editedDiagnosis?.previous_injuries || ''}
+                      onChange={(e) => updateEditedField('previous_injuries', e.target.value || null)}
+                      className="w-full p-2 border border-orange-300 rounded text-orange-800 resize-none"
+                      rows={2}
+                      placeholder="Enter previous injuries..."
+                    />
                   </div>
-                )}
-                
-                {diagnosisResult.associated_symptoms && (
+                  
                   <div>
-                    <span className="font-medium text-orange-800">🔍 Associated Symptoms:</span>
-                    <div className="text-orange-700 mt-1">{diagnosisResult.associated_symptoms}</div>
+                    <label className="font-medium text-orange-800 block mb-1">🔍 Associated Symptoms:</label>
+                    <textarea
+                      value={editedDiagnosis?.associated_symptoms || ''}
+                      onChange={(e) => updateEditedField('associated_symptoms', e.target.value || null)}
+                      className="w-full p-2 border border-orange-300 rounded text-orange-800 resize-none"
+                      rows={2}
+                      placeholder="Enter associated symptoms..."
+                    />
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="space-y-3 text-sm">
+                  {diagnosisResult.allergies && (
+                    <div>
+                      <span className="font-medium text-orange-800">⚠️ Allergies:</span>
+                      <div className="text-orange-700 mt-1">{diagnosisResult.allergies}</div>
+                    </div>
+                  )}
+                  
+                  {diagnosisResult.current_medications && (
+                    <div>
+                      <span className="font-medium text-orange-800">💊 Current Medications:</span>
+                      <div className="text-orange-700 mt-1">{diagnosisResult.current_medications}</div>
+                    </div>
+                  )}
+                  
+                  {diagnosisResult.chronic_conditions && (
+                    <div>
+                      <span className="font-medium text-orange-800">🩺 Chronic Conditions:</span>
+                      <div className="text-orange-700 mt-1">{diagnosisResult.chronic_conditions}</div>
+                    </div>
+                  )}
+                  
+                  {diagnosisResult.previous_surgeries && (
+                    <div>
+                      <span className="font-medium text-orange-800">🏥 Previous Surgeries:</span>
+                      <div className="text-orange-700 mt-1">{diagnosisResult.previous_surgeries}</div>
+                    </div>
+                  )}
+                  
+                  {diagnosisResult.previous_injuries && (
+                    <div>
+                      <span className="font-medium text-orange-800">🩹 Previous Injuries:</span>
+                      <div className="text-orange-700 mt-1">{diagnosisResult.previous_injuries}</div>
+                    </div>
+                  )}
+                  
+                  {diagnosisResult.associated_symptoms && (
+                    <div>
+                      <span className="font-medium text-orange-800">🔍 Associated Symptoms:</span>
+                      <div className="text-orange-700 mt-1">{diagnosisResult.associated_symptoms}</div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {/* Primary Diagnosis */}
           <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
             <h3 className="font-semibold text-emerald-900 mb-2">Primary Diagnosis</h3>
-            <p className="text-emerald-800">{diagnosisResult.primary_diagnosis}</p>
+            {isEditing ? (
+              <textarea
+                value={editedDiagnosis?.primary_diagnosis || ''}
+                onChange={(e) => updateEditedField('primary_diagnosis', e.target.value)}
+                className="w-full p-2 border border-emerald-300 rounded text-emerald-800 min-h-[60px]"
+                placeholder="Enter primary diagnosis"
+              />
+            ) : (
+              <p className="text-emerald-800">{diagnosisResult.primary_diagnosis}</p>
+            )}
           </div>
 
           {/* Differential Diagnoses */}
-          {diagnosisResult.differential_diagnoses && diagnosisResult.differential_diagnoses.length > 0 && (
+          {((diagnosisResult.differential_diagnoses && diagnosisResult.differential_diagnoses.length > 0) || isEditing) && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h3 className="font-semibold text-blue-900 mb-2">Differential Diagnoses</h3>
-              <ul className="list-disc list-inside text-blue-800 space-y-1">
-                {diagnosisResult.differential_diagnoses.map((diagnosis: string, index: number) => (
-                  <li key={index}>{diagnosis}</li>
-                ))}
-              </ul>
+              {isEditing ? (
+                <div className="space-y-2">
+                  {editedDiagnosis?.differential_diagnoses?.map((diagnosis: string, index: number) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={diagnosis}
+                        onChange={(e) => updateArrayItem('differential_diagnoses', index, e.target.value)}
+                        className="flex-1 p-2 border border-blue-300 rounded text-blue-800"
+                        placeholder="Enter differential diagnosis"
+                      />
+                      <button
+                        onClick={() => removeArrayItem('differential_diagnoses', index)}
+                        className="px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => addArrayItem('differential_diagnoses', '')}
+                    className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
+                  >
+                    Add Differential Diagnosis
+                  </button>
+                </div>
+              ) : (
+                <ul className="list-disc list-inside text-blue-800 space-y-1">
+                  {diagnosisResult.differential_diagnoses?.map((diagnosis: string, index: number) => (
+                    <li key={index}>{diagnosis}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
           {/* Recommended Actions */}
-          {diagnosisResult.recommended_actions && diagnosisResult.recommended_actions.length > 0 && (
+          {((diagnosisResult.recommended_actions && diagnosisResult.recommended_actions.length > 0) || isEditing) && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
               <h3 className="font-semibold text-amber-900 mb-2">Recommended Actions</h3>
-              <ul className="list-disc list-inside text-amber-800 space-y-1">
-                {diagnosisResult.recommended_actions.map((action: string, index: number) => (
-                  <li key={index}>{action}</li>
-                ))}
-              </ul>
+              {isEditing ? (
+                <div className="space-y-2">
+                  {editedDiagnosis.recommended_actions?.map((action: string, index: number) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={action}
+                        onChange={(e) => updateArrayItem('recommended_actions', index, e.target.value)}
+                        className="flex-1 p-2 border border-amber-300 rounded text-amber-800"
+                        placeholder="Enter recommended action"
+                      />
+                      <button
+                        onClick={() => removeArrayItem('recommended_actions', index)}
+                        className="px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => addArrayItem('recommended_actions', '')}
+                    className="px-3 py-1 bg-amber-500 text-white rounded text-sm hover:bg-amber-600"
+                  >
+                    Add Recommended Action
+                  </button>
+                </div>
+              ) : (
+                <ul className="list-disc list-inside text-amber-800 space-y-1">
+                  {diagnosisResult.recommended_actions?.map((action: string, index: number) => (
+                    <li key={index}>{action}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
           {/* Treatment */}
-          {diagnosisResult.treatment && diagnosisResult.treatment.length > 0 && (
+          {((diagnosisResult.treatment && diagnosisResult.treatment.length > 0) || isEditing) && (
             <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
               <h3 className="font-semibold text-purple-900 mb-2">Treatment</h3>
-              <ul className="list-disc list-inside text-purple-800 space-y-1">
-                {diagnosisResult.treatment.map((treatment: string, index: number) => (
-                  <li key={index}>{treatment}</li>
-                ))}
-              </ul>
+              {isEditing ? (
+                <div className="space-y-2">
+                  {editedDiagnosis.treatment?.map((treatment: string, index: number) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={treatment}
+                        onChange={(e) => updateArrayItem('treatment', index, e.target.value)}
+                        className="flex-1 p-2 border border-purple-300 rounded text-purple-800"
+                        placeholder="Enter treatment"
+                      />
+                      <button
+                        onClick={() => removeArrayItem('treatment', index)}
+                        className="px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => addArrayItem('treatment', '')}
+                    className="px-3 py-1 bg-purple-500 text-white rounded text-sm hover:bg-purple-600"
+                  >
+                    Add Treatment
+                  </button>
+                </div>
+              ) : (
+                <ul className="list-disc list-inside text-purple-800 space-y-1">
+                  {diagnosisResult.treatment?.map((treatment: string, index: number) => (
+                    <li key={index}>{treatment}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
           {/* Inventory Drug Recommendations */}
-          {diagnosisResult.inventory_drugs && diagnosisResult.inventory_drugs.length > 0 && (
+          {((diagnosisResult.inventory_drugs && diagnosisResult.inventory_drugs.length > 0) || isEditing) && (
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
               <h3 className="font-semibold text-green-900 mb-3">🏥 Available from Your Inventory</h3>
-              <div className="space-y-3">
-                {diagnosisResult.inventory_drugs.map((drug: any, index: number) => (
-                  <div key={index} className="bg-white rounded-lg border border-green-200 p-3">
-                    <div className="flex items-start justify-between mb-2">
-                      <h4 className="font-medium text-green-900">{drug.drug_name}</h4>
-                      <div className="flex items-center space-x-2">
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          ✓ In Stock
-                        </span>
-                        {drug.prescription_required && (
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+              {isEditing ? (
+                <div className="space-y-3">
+                  {editedDiagnosis?.inventory_drugs?.map((drug: any, index: number) => (
+                    <div key={index} className="bg-white rounded-lg border border-green-200 p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <h4 className="font-medium text-green-900">Drug #{index + 1}</h4>
+                        <button
+                          onClick={() => removeDrugItem('inventory_drugs', index)}
+                          className="px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <div className="grid md:grid-cols-2 gap-3 text-sm">
+                        <div className="relative">
+                          <label className="font-medium text-green-800 block mb-1">
+                            Drug Name: 
+                            <span className="text-xs font-normal text-green-600 ml-1">
+                              (type to search your inventory)
+                            </span>
+                          </label>
+                          <input
+                            type="text"
+                            value={drug.drug_name || ''}
+                            onChange={(e) => {
+                              updateDrugItem('inventory_drugs', index, 'drug_name', e.target.value);
+                              searchDrugs(e.target.value, `inventory_drugs_${index}`);
+                            }}
+                            onFocus={() => {
+                              if (drug.drug_name && drug.drug_name.length >= 2) {
+                                searchDrugs(drug.drug_name, `inventory_drugs_${index}`);
+                              }
+                            }}
+                            onBlur={() => {
+                              // Delay hiding suggestions to allow click
+                              setTimeout(() => {
+                                setShowDrugSuggestions(prev => ({ ...prev, [`inventory_drugs_${index}`]: false }));
+                              }, 200);
+                            }}
+                            className="w-full p-2 border border-green-300 rounded text-green-800"
+                            placeholder="🔍 Type drug name to search your inventory..."
+                          />
+                          {showDrugSuggestions[`inventory_drugs_${index}`] && drugSearchResults.length > 0 && (
+                            <div className="absolute top-full left-0 right-0 z-10 bg-white border border-green-300 rounded-b shadow-lg max-h-40 overflow-y-auto">
+                              {drugSearchResults.map((inventoryDrug, drugIndex) => (
+                                <div
+                                  key={drugIndex}
+                                  onClick={() => selectDrug(inventoryDrug, 'inventory_drugs', index)}
+                                  className="p-2 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                >
+                                  <div className="font-medium text-green-900">{inventoryDrug.drug_name}</div>
+                                  {inventoryDrug.generic_name && (
+                                    <div className="text-xs text-green-600">Generic: {inventoryDrug.generic_name}</div>
+                                  )}
+                                  {inventoryDrug.strength && (
+                                    <div className="text-xs text-green-600">{inventoryDrug.strength}</div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="font-medium text-green-800 block mb-1">Therapeutic Class:</label>
+                          <input
+                            type="text"
+                            value={drug.therapeutic_class || ''}
+                            onChange={(e) => updateDrugItem('inventory_drugs', index, 'therapeutic_class', e.target.value)}
+                            className="w-full p-2 border border-green-300 rounded text-green-800"
+                            placeholder="Enter therapeutic class"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-medium text-green-800 block mb-1">Dosage:</label>
+                          <input
+                            type="text"
+                            value={drug.dosage || ''}
+                            onChange={(e) => updateDrugItem('inventory_drugs', index, 'dosage', e.target.value)}
+                            className="w-full p-2 border border-green-300 rounded text-green-800"
+                            placeholder="Enter dosage"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-medium text-green-800 block mb-1">Duration:</label>
+                          <input
+                            type="text"
+                            value={drug.duration || ''}
+                            onChange={(e) => updateDrugItem('inventory_drugs', index, 'duration', e.target.value)}
+                            className="w-full p-2 border border-green-300 rounded text-green-800"
+                            placeholder="Enter duration"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="font-medium text-green-800 block mb-1">Instructions:</label>
+                          <textarea
+                            value={drug.instructions || ''}
+                            onChange={(e) => updateDrugItem('inventory_drugs', index, 'instructions', e.target.value)}
+                            className="w-full p-2 border border-green-300 rounded text-green-800 resize-none"
+                            rows={2}
+                            placeholder="Enter instructions"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="font-medium text-green-800 block mb-1">Clinical Rationale:</label>
+                          <textarea
+                            value={drug.clinical_rationale || ''}
+                            onChange={(e) => updateDrugItem('inventory_drugs', index, 'clinical_rationale', e.target.value)}
+                            className="w-full p-2 border border-green-300 rounded text-green-800 resize-none"
+                            rows={2}
+                            placeholder="Enter clinical rationale"
+                          />
+                        </div>
+                        <div className="flex items-center">
+                          <input
+                            type="checkbox"
+                            id={`inventory_prescription_${index}`}
+                            checked={drug.prescription_required || false}
+                            onChange={(e) => updateDrugItem('inventory_drugs', index, 'prescription_required', e.target.checked)}
+                            className="mr-2"
+                          />
+                          <label htmlFor={`inventory_prescription_${index}`} className="text-green-800">
                             Prescription Required
-                          </span>
-                        )}
+                          </label>
+                        </div>
                       </div>
                     </div>
-                    <div className="text-sm text-green-700 space-y-1">
-                      {drug.therapeutic_class && <p><strong>Class:</strong> {drug.therapeutic_class}</p>}
-                      <p><strong>Dosage:</strong> {drug.dosage}</p>
-                      {drug.duration && <p><strong>Duration:</strong> {drug.duration}</p>}
-                      {drug.instructions && <p><strong>Instructions:</strong> {drug.instructions}</p>}
-                      {drug.clinical_rationale && <p><strong>Rationale:</strong> {drug.clinical_rationale}</p>}
+                  ))}
+                  <button
+                    onClick={() => addDrugItem('inventory_drugs')}
+                    className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                  >
+                    Add Inventory Drug
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {diagnosisResult.inventory_drugs?.map((drug: any, index: number) => (
+                    <div key={index} className="bg-white rounded-lg border border-green-200 p-3">
+                      <div className="flex items-start justify-between mb-2">
+                        <h4 className="font-medium text-green-900">{drug.drug_name}</h4>
+                        <div className="flex items-center space-x-2">
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            ✓ In Stock
+                          </span>
+                          {drug.prescription_required && (
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                              Prescription Required
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-sm text-green-700 space-y-1">
+                        {drug.therapeutic_class && <p><strong>Class:</strong> {drug.therapeutic_class}</p>}
+                        <p><strong>Dosage:</strong> {drug.dosage}</p>
+                        {drug.duration && <p><strong>Duration:</strong> {drug.duration}</p>}
+                        {drug.instructions && <p><strong>Instructions:</strong> {drug.instructions}</p>}
+                        {drug.clinical_rationale && <p><strong>Rationale:</strong> {drug.clinical_rationale}</p>}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           {/* Additional External Therapy */}
-          {diagnosisResult.additional_therapy && diagnosisResult.additional_therapy.length > 0 && (
+          {((diagnosisResult.additional_therapy && diagnosisResult.additional_therapy.length > 0) || isEditing) && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h3 className="font-semibold text-blue-900 mb-3">💊 Additional Recommended Therapy</h3>
-              <div className="space-y-3">
-                {diagnosisResult.additional_therapy.map((drug: any, index: number) => (
-                  <div key={index} className="bg-white rounded-lg border border-blue-200 p-3">
-                    <div className="flex items-start justify-between mb-2">
-                      <h4 className="font-medium text-blue-900">{drug.drug_name}</h4>
-                      <div className="flex items-center space-x-2">
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          External
-                        </span>
-                        {drug.prescription_required && (
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+              {isEditing ? (
+                <div className="space-y-3">
+                  {editedDiagnosis?.additional_therapy?.map((drug: any, index: number) => (
+                    <div key={index} className="bg-white rounded-lg border border-blue-200 p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <h4 className="font-medium text-blue-900">Therapy #{index + 1}</h4>
+                        <button
+                          onClick={() => removeDrugItem('additional_therapy', index)}
+                          className="px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <div className="grid md:grid-cols-2 gap-3 text-sm">
+                        <div className="relative">
+                          <label className="font-medium text-blue-800 block mb-1">
+                            Drug Name: 
+                            <span className="text-xs font-normal text-blue-600 ml-1">
+                              (type to search your inventory)
+                            </span>
+                          </label>
+                          <input
+                            type="text"
+                            value={drug.drug_name || ''}
+                            onChange={(e) => {
+                              updateDrugItem('additional_therapy', index, 'drug_name', e.target.value);
+                              searchDrugs(e.target.value, `additional_therapy_${index}`);
+                            }}
+                            onFocus={() => {
+                              if (drug.drug_name && drug.drug_name.length >= 2) {
+                                searchDrugs(drug.drug_name, `additional_therapy_${index}`);
+                              }
+                            }}
+                            onBlur={() => {
+                              // Delay hiding suggestions to allow click
+                              setTimeout(() => {
+                                setShowDrugSuggestions(prev => ({ ...prev, [`additional_therapy_${index}`]: false }));
+                              }, 200);
+                            }}
+                            className="w-full p-2 border border-blue-300 rounded text-blue-800"
+                            placeholder="🔍 Type drug name to search your inventory..."
+                          />
+                          {showDrugSuggestions[`additional_therapy_${index}`] && drugSearchResults.length > 0 && (
+                            <div className="absolute top-full left-0 right-0 z-10 bg-white border border-blue-300 rounded-b shadow-lg max-h-40 overflow-y-auto">
+                              {drugSearchResults.map((inventoryDrug, drugIndex) => (
+                                <div
+                                  key={drugIndex}
+                                  onClick={() => selectDrug(inventoryDrug, 'additional_therapy', index)}
+                                  className="p-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                >
+                                  <div className="font-medium text-blue-900">{inventoryDrug.drug_name}</div>
+                                  {inventoryDrug.generic_name && (
+                                    <div className="text-xs text-blue-600">Generic: {inventoryDrug.generic_name}</div>
+                                  )}
+                                  {inventoryDrug.strength && (
+                                    <div className="text-xs text-blue-600">{inventoryDrug.strength}</div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="font-medium text-blue-800 block mb-1">Therapeutic Class:</label>
+                          <input
+                            type="text"
+                            value={drug.therapeutic_class || ''}
+                            onChange={(e) => updateDrugItem('additional_therapy', index, 'therapeutic_class', e.target.value)}
+                            className="w-full p-2 border border-blue-300 rounded text-blue-800"
+                            placeholder="Enter therapeutic class"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-medium text-blue-800 block mb-1">Dosage:</label>
+                          <input
+                            type="text"
+                            value={drug.dosage || ''}
+                            onChange={(e) => updateDrugItem('additional_therapy', index, 'dosage', e.target.value)}
+                            className="w-full p-2 border border-blue-300 rounded text-blue-800"
+                            placeholder="Enter dosage"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-medium text-blue-800 block mb-1">Duration:</label>
+                          <input
+                            type="text"
+                            value={drug.duration || ''}
+                            onChange={(e) => updateDrugItem('additional_therapy', index, 'duration', e.target.value)}
+                            className="w-full p-2 border border-blue-300 rounded text-blue-800"
+                            placeholder="Enter duration"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-medium text-blue-800 block mb-1">Availability:</label>
+                          <input
+                            type="text"
+                            value={drug.availability || ''}
+                            onChange={(e) => updateDrugItem('additional_therapy', index, 'availability', e.target.value)}
+                            className="w-full p-2 border border-blue-300 rounded text-blue-800"
+                            placeholder="Enter availability"
+                          />
+                        </div>
+                        <div className="flex items-center">
+                          <input
+                            type="checkbox"
+                            id={`therapy_prescription_${index}`}
+                            checked={drug.prescription_required || false}
+                            onChange={(e) => updateDrugItem('additional_therapy', index, 'prescription_required', e.target.checked)}
+                            className="mr-2"
+                          />
+                          <label htmlFor={`therapy_prescription_${index}`} className="text-blue-800">
                             Prescription Required
-                          </span>
-                        )}
+                          </label>
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="font-medium text-blue-800 block mb-1">Instructions:</label>
+                          <textarea
+                            value={drug.instructions || ''}
+                            onChange={(e) => updateDrugItem('additional_therapy', index, 'instructions', e.target.value)}
+                            className="w-full p-2 border border-blue-300 rounded text-blue-800 resize-none"
+                            rows={2}
+                            placeholder="Enter instructions"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="font-medium text-blue-800 block mb-1">Clinical Rationale:</label>
+                          <textarea
+                            value={drug.clinical_rationale || ''}
+                            onChange={(e) => updateDrugItem('additional_therapy', index, 'clinical_rationale', e.target.value)}
+                            className="w-full p-2 border border-blue-300 rounded text-blue-800 resize-none"
+                            rows={2}
+                            placeholder="Enter clinical rationale"
+                          />
+                        </div>
                       </div>
                     </div>
-                    <div className="text-sm text-blue-700 space-y-1">
-                      {drug.therapeutic_class && <p><strong>Class:</strong> {drug.therapeutic_class}</p>}
-                      <p><strong>Dosage:</strong> {drug.dosage}</p>
-                      {drug.duration && <p><strong>Duration:</strong> {drug.duration}</p>}
-                      {drug.instructions && <p><strong>Instructions:</strong> {drug.instructions}</p>}
-                      {drug.availability && <p><strong>Availability:</strong> {drug.availability}</p>}
-                      {drug.clinical_rationale && <p><strong>Rationale:</strong> {drug.clinical_rationale}</p>}
+                  ))}
+                  <button
+                    onClick={() => addDrugItem('additional_therapy')}
+                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  >
+                    Add Additional Therapy
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {diagnosisResult.additional_therapy?.map((drug: any, index: number) => (
+                    <div key={index} className="bg-white rounded-lg border border-blue-200 p-3">
+                      <div className="flex items-start justify-between mb-2">
+                        <h4 className="font-medium text-blue-900">{drug.drug_name}</h4>
+                        <div className="flex items-center space-x-2">
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            External
+                          </span>
+                          {drug.prescription_required && (
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                              Prescription Required
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-sm text-blue-700 space-y-1">
+                        {drug.therapeutic_class && <p><strong>Class:</strong> {drug.therapeutic_class}</p>}
+                        <p><strong>Dosage:</strong> {drug.dosage}</p>
+                        {drug.duration && <p><strong>Duration:</strong> {drug.duration}</p>}
+                        {drug.instructions && <p><strong>Instructions:</strong> {drug.instructions}</p>}
+                        {drug.availability && <p><strong>Availability:</strong> {drug.availability}</p>}
+                        {drug.clinical_rationale && <p><strong>Rationale:</strong> {drug.clinical_rationale}</p>}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
