@@ -8,6 +8,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { CreditsService } from '@/lib/credits';
 import { DrugInventoryService } from '@/lib/drugInventory';
 import DiagnosisDebug from './DiagnosisDebug';
+import { DiagnosisExportDropdown } from './DiagnosisExportButtons';
 
 interface DiagnosisFormProps {
   onDiagnosisComplete?: (diagnosisId: string) => void;
@@ -427,42 +428,47 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <div className="flex items-center justify-center gap-4 mb-4">
-            <h2 className="text-2xl font-semibold text-slate-900">Diagnosis Complete</h2>
-            {!isEditing ? (
-              <button
-                onClick={startEditing}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                Edit Diagnosis
-              </button>
-            ) : (
-              <div className="flex gap-2">
+          <div className="flex flex-col items-center gap-4 mb-4">
+            <div className="flex items-center gap-4">
+              <h2 className="text-2xl font-semibold text-slate-900">Diagnosis Complete</h2>
+              {!isEditing ? (
                 <button
-                  onClick={saveEditing}
-                  disabled={loading}
-                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                  onClick={startEditing}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                   </svg>
-                  Save Changes
+                  Edit Diagnosis
                 </button>
-                <button
-                  onClick={cancelEditing}
-                  disabled={loading}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  Cancel
-                </button>
-              </div>
-            )}
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveEditing}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Save Changes
+                  </button>
+                  <button
+                    onClick={cancelEditing}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            {/* Export Buttons */}
+            <DiagnosisExportDropdown diagnosis={diagnosisResult} />
           </div>
           <p className="text-slate-600">
             {isEditing ? 'Edit the diagnosis details below and save your changes.' : 'AI analysis has been completed for your patient.'}

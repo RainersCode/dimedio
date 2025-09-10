@@ -16,6 +16,8 @@ export default function DrugInventoryPage() {
   const [hasAccess, setHasAccess] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [stockFilter, setStockFilter] = useState<string>(''); // '', 'low_stock', 'out_of_stock'
+  const [expiryFilter, setExpiryFilter] = useState<string>(''); // '', 'near_expiry', 'expired'
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [editingDrug, setEditingDrug] = useState<UserDrugInventory | null>(null);
@@ -214,9 +216,41 @@ export default function DrugInventoryPage() {
   };
 
   const filteredDrugs = drugs.filter(drug => {
+    // Category filter
     if (selectedCategory && drug.category_id !== selectedCategory) {
       return false;
     }
+    
+    // Stock filter
+    if (stockFilter) {
+      const stockStatus = getDrugStockStatus(drug);
+      if (stockFilter === 'low_stock' && stockStatus !== 'low_stock') {
+        return false;
+      }
+      if (stockFilter === 'out_of_stock' && stockStatus !== 'out_of_stock') {
+        return false;
+      }
+      if (stockFilter === 'low_or_out' && stockStatus !== 'low_stock' && stockStatus !== 'out_of_stock') {
+        return false;
+      }
+    }
+    
+    // Expiry filter
+    if (expiryFilter) {
+      const nearExpiry = isNearExpiry(drug.expiry_date);
+      const isExpired = drug.expiry_date && new Date(drug.expiry_date) < new Date();
+      
+      if (expiryFilter === 'near_expiry' && !nearExpiry) {
+        return false;
+      }
+      if (expiryFilter === 'expired' && !isExpired) {
+        return false;
+      }
+      if (expiryFilter === 'near_or_expired' && !nearExpiry && !isExpired) {
+        return false;
+      }
+    }
+    
     return true;
   });
 
@@ -230,6 +264,25 @@ export default function DrugInventoryPage() {
   const handleCategoryChange = (categoryId: string) => {
     setSelectedCategory(categoryId);
     setCurrentPage(1);
+  };
+
+  const handleStockFilterChange = (stockFilter: string) => {
+    setStockFilter(stockFilter);
+    setCurrentPage(1);
+  };
+
+  const handleExpiryFilterChange = (expiryFilter: string) => {
+    setExpiryFilter(expiryFilter);
+    setCurrentPage(1);
+  };
+
+  const clearAllFilters = () => {
+    setSelectedCategory('');
+    setStockFilter('');
+    setExpiryFilter('');
+    setSearchQuery('');
+    setCurrentPage(1);
+    loadData(); // Reset to original data
   };
 
   const handleSearchSubmit = async () => {
@@ -331,41 +384,92 @@ export default function DrugInventoryPage() {
 
         {/* Controls */}
         <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
-          <div className="flex flex-col lg:flex-row gap-4 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-700 mb-2">Search Drugs</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by drug name, generic name, or brand..."
-                  className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                  onKeyPress={(e) => e.key === 'Enter' && handleSearchSubmit()}
-                />
-                <button
-                  onClick={handleSearchSubmit}
-                  className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors"
+          <div className="flex flex-col gap-4">
+            {/* Search Row */}
+            <div className="flex flex-col lg:flex-row gap-4 items-end">
+              <div className="flex-1">
+                <label className="block text-sm font-medium text-slate-700 mb-2">Search Drugs</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by drug name, generic name, or brand..."
+                    className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    onKeyPress={(e) => e.key === 'Enter' && handleSearchSubmit()}
+                  />
+                  <button
+                    onClick={handleSearchSubmit}
+                    className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors"
+                  >
+                    Search
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Filters Row */}
+            <div className="flex flex-col lg:flex-row gap-4 items-end">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Category</label>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => handleCategoryChange(e.target.value)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 >
-                  Search
+                  <option value="">All Categories</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Stock Status</label>
+                <select
+                  value={stockFilter}
+                  onChange={(e) => handleStockFilterChange(e.target.value)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                >
+                  <option value="">All Stock Levels</option>
+                  <option value="low_or_out">Low/Out of Stock</option>
+                  <option value="low_stock">Low Stock Only</option>
+                  <option value="out_of_stock">Out of Stock Only</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Expiry Status</label>
+                <select
+                  value={expiryFilter}
+                  onChange={(e) => handleExpiryFilterChange(e.target.value)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                >
+                  <option value="">All Expiry Dates</option>
+                  <option value="near_or_expired">Near Expiry/Expired</option>
+                  <option value="near_expiry">Near Expiry Only</option>
+                  <option value="expired">Expired Only</option>
+                </select>
+              </div>
+
+              <div>
+                <button
+                  onClick={clearAllFilters}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors flex items-center"
+                  title="Clear all filters"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Clear Filters
                 </button>
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Category</label>
-              <select
-                value={selectedCategory}
-                onChange={(e) => handleCategoryChange(e.target.value)}
-                className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-              >
-                <option value="">All Categories</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+
+            {/* Action Buttons Row */}
+            <div className="flex justify-end">
             <div className="flex gap-2">
               <button
                 onClick={() => setShowImportModal(true)}
@@ -413,6 +517,7 @@ export default function DrugInventoryPage() {
               >
                 Add Drug
               </button>
+            </div>
             </div>
           </div>
         </div>
@@ -602,7 +707,11 @@ export default function DrugInventoryPage() {
 
         {/* Summary Cards */}
         <div className="grid md:grid-cols-3 gap-6 mt-6">
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+          <button 
+            onClick={clearAllFilters}
+            className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 hover:bg-slate-50 transition-colors text-left w-full"
+            title="Click to show all drugs"
+          >
             <div className="flex items-center">
               <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
                 <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -614,9 +723,13 @@ export default function DrugInventoryPage() {
                 <p className="text-sm text-slate-600">Total Drugs</p>
               </div>
             </div>
-          </div>
+          </button>
 
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+          <button 
+            onClick={() => handleStockFilterChange('low_or_out')}
+            className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 hover:bg-amber-50 transition-colors text-left w-full"
+            title="Click to filter low/out of stock drugs"
+          >
             <div className="flex items-center">
               <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
                 <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -630,9 +743,13 @@ export default function DrugInventoryPage() {
                 <p className="text-sm text-slate-600">Low/Out of Stock</p>
               </div>
             </div>
-          </div>
+          </button>
 
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+          <button 
+            onClick={() => handleExpiryFilterChange('near_or_expired')}
+            className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 hover:bg-red-50 transition-colors text-left w-full"
+            title="Click to filter near expiry/expired drugs"
+          >
             <div className="flex items-center">
               <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
                 <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -646,7 +763,7 @@ export default function DrugInventoryPage() {
                 <p className="text-sm text-slate-600">Near Expiry</p>
               </div>
             </div>
-          </div>
+          </button>
         </div>
       </div>
 

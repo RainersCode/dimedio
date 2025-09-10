@@ -18,7 +18,7 @@ export default function AddDrugModal({ categories, onClose, onSuccess }: AddDrug
     drug_name_lv: '',
     generic_name: '',
     brand_name: '',
-    category_id: '',
+    category_id: undefined,
     dosage_form: '',
     strength: '',
     active_ingredient: '',
@@ -158,7 +158,7 @@ export default function AddDrugModal({ categories, onClose, onSuccess }: AddDrug
                 <label className="block text-sm font-medium text-slate-700 mb-2">Category</label>
                 <select
                   value={formData.category_id || ''}
-                  onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
+                  onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value || undefined }))}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 >
                   <option value="">Select category</option>

@@ -25,90 +25,138 @@ interface JsonDrug {
   supplier?: string;
   original_row?: number;
   search_keywords?: string[];
+  expiry?: string;
+  expiry_date?: string;
+  stock_quantity?: number;
 }
 
-// Excel parsing function using client-side parsing
+// Excel parsing function using xlsx library
 const parseExcelFile = async (file: File): Promise<JsonDrug[]> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         
-        // Simple CSV-like parsing for Excel data
-        // Note: This is a basic implementation. For production, you'd want to use a library like xlsx
-        const text = new TextDecoder().decode(data);
-        const lines = text.split('\n').filter(line => line.trim());
+        // Dynamic import of xlsx to avoid SSR issues
+        const XLSX = await import('xlsx');
         
-        if (lines.length < 2) {
+        // Parse the Excel file
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+          reject(new Error('Excel file contains no sheets'));
+          return;
+        }
+        
+        // Get the first sheet
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        
+        // Convert sheet to JSON
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        
+        if (!jsonData || jsonData.length < 2) {
           reject(new Error('Excel file must have at least a header row and one data row'));
           return;
         }
-
-        // Assume first row is headers
-        const headers = lines[0].split('\t').map(h => h.trim().toLowerCase());
+        
+        // Get headers from first row and normalize them
+        const headers = (jsonData[0] as string[]).map(h => 
+          h ? h.toString().trim().toLowerCase().replace(/\s+/g, '_') : ''
+        );
+        
         const drugs: JsonDrug[] = [];
-
-        for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].split('\t');
+        
+        // Process data rows (skip header row)
+        for (let i = 1; i < jsonData.length; i++) {
+          const row = jsonData[i] as any[];
           const drug: JsonDrug = { name: '', original_row: i + 1 };
-
-          // Map common column names to drug properties
+          
+          // Map each column to drug properties
           headers.forEach((header, index) => {
-            const value = values[index]?.trim();
-            if (!value) return;
+            const value = row[index];
+            if (value === null || value === undefined || value === '') return;
+            
+            const stringValue = value.toString().trim();
+            if (!stringValue) return;
 
             switch (header) {
               case 'name':
               case 'drug_name':
-              case 'drug name':
+              case 'drug_name_lv':
               case 'medicine':
               case 'medication':
-                drug.name = value;
+                drug.name = stringValue;
                 break;
               case 'dosage':
               case 'dose':
               case 'strength':
-                drug.dosage = value;
+                drug.dosage = stringValue;
                 break;
               case 'category':
               case 'type':
               case 'class':
-                drug.category = value;
+                drug.category = stringValue;
                 break;
               case 'active_ingredient':
-              case 'active ingredient':
+              case 'active_ingredient_lv':
               case 'ingredient':
-                drug.active_ingredient = value;
+                drug.active_ingredient = stringValue;
                 break;
               case 'form':
               case 'dosage_form':
-              case 'dosage form':
-                drug.form = value;
+              case 'dosage_form_lv':
+                drug.form = stringValue;
                 break;
               case 'price':
+              case 'unit_price':
               case 'cost':
-                drug.price = parseFloat(value) || 0;
+                const price = parseFloat(stringValue);
+                if (!isNaN(price)) {
+                  drug.price = price;
+                }
                 break;
               case 'supplier':
               case 'manufacturer':
-                drug.supplier = value;
+                drug.supplier = stringValue;
                 break;
               case 'description':
               case 'notes':
-                drug.description = value;
+                drug.description = stringValue;
+                break;
+              case 'expiry':
+              case 'expiry_date':
+              case 'expiration':
+              case 'expiration_date':
+                drug.expiry = stringValue;
+                break;
+              case 'stock_quantity':
+              case 'stock':
+              case 'available':
+                const stockValue = parseFloat(stringValue);
+                if (!isNaN(stockValue)) {
+                  drug.stock_quantity = stockValue;
+                }
                 break;
             }
           });
 
-          if (drug.name) {
+          // Only add drugs that have at least a name
+          if (drug.name && drug.name.trim() !== '') {
             drugs.push(drug);
           }
         }
 
+        if (drugs.length === 0) {
+          reject(new Error('No valid drug data found. Make sure the "name" column contains drug names.'));
+          return;
+        }
+
         resolve(drugs);
       } catch (error) {
-        reject(new Error('Failed to parse Excel file. Please ensure it\'s a valid Excel file.'));
+        console.error('Excel parsing error:', error);
+        reject(new Error(`Failed to parse Excel file: ${error instanceof Error ? error.message : 'Unknown error'}`));
       }
     };
     reader.onerror = () => reject(new Error('Failed to read file'));
@@ -211,11 +259,11 @@ export default function ImportDrugsModal({ categories, onClose, onSuccess }: Imp
       contraindications: [],
       dosage_adults: undefined,
       dosage_children: undefined,
-      stock_quantity: typeof jsonDrug.available === 'number' ? jsonDrug.available : 0,
+      stock_quantity: jsonDrug.stock_quantity || (typeof jsonDrug.available === 'number' ? jsonDrug.available : 0),
       unit_price: jsonDrug.price || undefined,
       supplier: jsonDrug.supplier || undefined,
       batch_number: undefined,
-      expiry_date: undefined,
+      expiry_date: parseExpiryDate(jsonDrug.expiry || jsonDrug.expiry_date || '') || undefined,
       is_prescription_only: false,
       notes: `Imported from JSON${jsonDrug.original_row ? ` (row ${jsonDrug.original_row})` : ''}`,
     };
@@ -251,6 +299,35 @@ export default function ImportDrugsModal({ categories, onClose, onSuccess }: Imp
     if (!name) return undefined;
     const dosageMatch = name.match(/(\d+(?:\.\d+)?(?:mg|g|ml|%|IU|SV|mkg|mcg))/i);
     return dosageMatch ? dosageMatch[1] : undefined;
+  };
+
+  const parseExpiryDate = (expiry: string): string | undefined => {
+    if (!expiry || expiry.trim() === '') return undefined;
+    
+    // Remove trailing dot and clean the string
+    const cleanExpiry = expiry.replace(/\.$/, '').trim();
+    
+    // Handle DD.MM.YYYY format (common in your data)
+    const ddmmyyyyMatch = cleanExpiry.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (ddmmyyyyMatch) {
+      const [, day, month, year] = ddmmyyyyMatch;
+      // Convert to YYYY-MM-DD format for the database
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+    
+    // Handle YYYY-MM-DD format (already correct)
+    const yyyymmddMatch = cleanExpiry.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (yyyymmddMatch) {
+      return cleanExpiry;
+    }
+    
+    // Try to parse other common formats
+    const date = new Date(cleanExpiry);
+    if (!isNaN(date.getTime())) {
+      return date.toISOString().split('T')[0];
+    }
+    
+    return undefined;
   };
 
   const handleImport = async () => {
@@ -321,6 +398,57 @@ export default function ImportDrugsModal({ categories, onClose, onSuccess }: Imp
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  // Download Excel template
+  const downloadTemplate = () => {
+    const headers = [
+      'name', 'category', 'dosage', 'form', 'active_ingredient', 
+      'price', 'stock_quantity', 'supplier', 'expiry', 'description'
+    ];
+
+    const sampleData = [
+      [
+        'Paracetamol 500mg',
+        'analgesics', 
+        '500mg',
+        'tablet',
+        'Paracetamol',
+        '0.15',
+        '100',
+        'Pharmacy Ltd',
+        '31.12.2025',
+        'Pain relief medication'
+      ],
+      [
+        'Amoxicillin 250mg',
+        'antibiotics',
+        '250mg', 
+        'capsule',
+        'Amoxicillin',
+        '0.85',
+        '50',
+        'MedSupply Inc',
+        '15.06.2026',
+        'Antibiotic for bacterial infections'
+      ]
+    ];
+
+    // Create CSV content (Excel-compatible)
+    const csvContent = [
+      headers.join('\t'),
+      ...sampleData.map(row => row.join('\t'))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/tab-separated-values' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'drug-import-template.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -409,18 +537,34 @@ export default function ImportDrugsModal({ categories, onClose, onSuccess }: Imp
             <div>
               {/* Instructions */}
               <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-blue-800 mb-2">JSON Format Requirements</h3>
-                <p className="text-sm text-blue-700 mb-2">Your JSON file should contain an array of drug objects with these fields:</p>
-                <ul className="text-xs text-blue-600 space-y-1 ml-4">
-                  <li><strong>name</strong> (required): Drug name</li>
-                  <li><strong>category</strong> (optional): Drug category</li>
-                  <li><strong>type</strong> (optional): Drug type/form</li>
-                  <li><strong>dosage</strong> (optional): Dosage information</li>
-                  <li><strong>active_ingredient</strong> (optional): Active ingredient</li>
-                  <li><strong>price</strong> (optional): Unit price</li>
-                  <li><strong>supplier</strong> (optional): Supplier name</li>
-                  <li><strong>available</strong> (optional): Availability status</li>
-                </ul>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h3 className="text-sm font-medium text-blue-800 mb-2">Import Format Requirements</h3>
+                    <p className="text-sm text-blue-700 mb-2">Your file should contain these columns:</p>
+                    <ul className="text-xs text-blue-600 space-y-1 ml-4">
+                      <li><strong>name</strong> (required): Drug name</li>
+                      <li><strong>category</strong> (optional): Drug category (tablets, capsules, etc.)</li>
+                      <li><strong>dosage</strong> (optional): Strength (500mg, 10mg/ml)</li>
+                      <li><strong>form</strong> (optional): Dosage form (tablet, capsule, syrup)</li>
+                      <li><strong>active_ingredient</strong> (optional): Active ingredient</li>
+                      <li><strong>price</strong> (optional): Unit price (0.15)</li>
+                      <li><strong>stock_quantity</strong> (optional): Stock amount</li>
+                      <li><strong>supplier</strong> (optional): Supplier name</li>
+                      <li><strong>expiry</strong> (optional): Expiry date (DD.MM.YYYY or YYYY-MM-DD)</li>
+                    </ul>
+                  </div>
+                  <div className="ml-4 flex-shrink-0">
+                    <button
+                      onClick={downloadTemplate}
+                      className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition-colors flex items-center"
+                    >
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Download Template
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* File Upload */}

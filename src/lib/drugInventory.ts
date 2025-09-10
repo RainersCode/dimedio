@@ -90,9 +90,27 @@ export class DrugInventoryService {
       return { data: null, error: accessError || 'Insufficient credits for drug inventory access' };
     }
 
+    // Clean form data - convert empty strings to undefined for optional fields
+    const cleanFormData = {
+      ...formData,
+      category_id: formData.category_id && formData.category_id.trim() !== '' ? formData.category_id : undefined,
+      drug_name_lv: formData.drug_name_lv && formData.drug_name_lv.trim() !== '' ? formData.drug_name_lv : undefined,
+      generic_name: formData.generic_name && formData.generic_name.trim() !== '' ? formData.generic_name : undefined,
+      brand_name: formData.brand_name && formData.brand_name.trim() !== '' ? formData.brand_name : undefined,
+      dosage_form: formData.dosage_form && formData.dosage_form.trim() !== '' ? formData.dosage_form : undefined,
+      strength: formData.strength && formData.strength.trim() !== '' ? formData.strength : undefined,
+      active_ingredient: formData.active_ingredient && formData.active_ingredient.trim() !== '' ? formData.active_ingredient : undefined,
+      dosage_adults: formData.dosage_adults && formData.dosage_adults.trim() !== '' ? formData.dosage_adults : undefined,
+      dosage_children: formData.dosage_children && formData.dosage_children.trim() !== '' ? formData.dosage_children : undefined,
+      supplier: formData.supplier && formData.supplier.trim() !== '' ? formData.supplier : undefined,
+      batch_number: formData.batch_number && formData.batch_number.trim() !== '' ? formData.batch_number : undefined,
+      expiry_date: formData.expiry_date && formData.expiry_date.trim() !== '' ? formData.expiry_date : undefined,
+      notes: formData.notes && formData.notes.trim() !== '' ? formData.notes : undefined,
+    };
+
     const drugData = {
       user_id: user.id,
-      ...formData,
+      ...cleanFormData,
     };
 
     const { data, error } = await supabase
@@ -132,22 +150,65 @@ export class DrugInventoryService {
     return { data, error: null };
   }
 
-  // Delete drug from inventory (soft delete)
+  // Delete drug from inventory (hard delete by default, soft delete if has history)
   static async deleteDrugFromInventory(drugId: string): Promise<{ error: string | null }> {
-    const { error } = await supabase
-      .from('user_drug_inventory')
-      .update({ is_active: false })
-      .eq('id', drugId);
+    try {
+      // First check if this drug has been used in diagnoses or has usage history
+      const { data: hasHistory, error: historyError } = await supabase
+        .from('diagnosis_drug_suggestions')
+        .select('id')
+        .eq('drug_id', drugId)
+        .limit(1);
 
-    if (error) {
-      console.error('Error deleting drug from inventory:', error);
-      return { error: error.message };
+      if (historyError) {
+        console.error('Error checking drug history:', historyError);
+        return { error: historyError.message };
+      }
+
+      // Also check drug usage history
+      const { data: hasUsage, error: usageError } = await supabase
+        .from('drug_usage_history')
+        .select('id')
+        .eq('drug_id', drugId)
+        .limit(1);
+
+      if (usageError) {
+        console.error('Error checking drug usage:', usageError);
+        return { error: usageError.message };
+      }
+
+      // If drug has history, use soft delete to preserve data integrity
+      if ((hasHistory && hasHistory.length > 0) || (hasUsage && hasUsage.length > 0)) {
+        const { error } = await supabase
+          .from('user_drug_inventory')
+          .update({ is_active: false })
+          .eq('id', drugId);
+
+        if (error) {
+          console.error('Error soft deleting drug:', error);
+          return { error: error.message };
+        }
+      } else {
+        // If no history, hard delete to save space
+        const { error } = await supabase
+          .from('user_drug_inventory')
+          .delete()
+          .eq('id', drugId);
+
+        if (error) {
+          console.error('Error hard deleting drug:', error);
+          return { error: error.message };
+        }
+      }
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error in deleteDrugFromInventory:', error);
+      return { error: 'Failed to delete drug' };
     }
-
-    return { error: null };
   }
 
-  // Delete all drugs from user's inventory (soft delete)
+  // Delete all drugs from user's inventory (hard delete unused, soft delete used)
   static async deleteAllDrugsFromInventory(): Promise<{ error: string | null; deletedCount?: number }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
@@ -155,31 +216,154 @@ export class DrugInventoryService {
       return { error: 'User not authenticated' };
     }
 
-    // First get count of active drugs for confirmation
-    const { count, error: countError } = await supabase
-      .from('user_drug_inventory')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .eq('is_active', true);
+    try {
+      // Get all active drugs for this user
+      const { data: userDrugs, error: drugsError } = await supabase
+        .from('user_drug_inventory')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('is_active', true);
 
-    if (countError) {
-      console.error('Error counting drugs:', countError);
-      return { error: countError.message };
+      if (drugsError) {
+        console.error('Error fetching user drugs:', drugsError);
+        return { error: drugsError.message };
+      }
+
+      if (!userDrugs || userDrugs.length === 0) {
+        return { error: null, deletedCount: 0 };
+      }
+
+      const drugIds = userDrugs.map(drug => drug.id);
+
+      // Check which drugs have history (diagnosis suggestions or usage)
+      const { data: drugsWithHistory, error: historyError } = await supabase
+        .from('diagnosis_drug_suggestions')
+        .select('drug_id')
+        .in('drug_id', drugIds);
+
+      if (historyError) {
+        console.error('Error checking drug history:', historyError);
+        return { error: historyError.message };
+      }
+
+      const { data: drugsWithUsage, error: usageError } = await supabase
+        .from('drug_usage_history')
+        .select('drug_id')
+        .in('drug_id', drugIds);
+
+      if (usageError) {
+        console.error('Error checking drug usage:', usageError);
+        return { error: usageError.message };
+      }
+
+      // Get IDs of drugs that have history
+      const drugsWithHistoryIds = new Set([
+        ...(drugsWithHistory || []).map(d => d.drug_id),
+        ...(drugsWithUsage || []).map(d => d.drug_id)
+      ]);
+
+      const drugsToHardDelete = drugIds.filter(id => !drugsWithHistoryIds.has(id));
+      const drugsToSoftDelete = drugIds.filter(id => drugsWithHistoryIds.has(id));
+
+      let totalDeleted = 0;
+
+      // Hard delete drugs without history
+      if (drugsToHardDelete.length > 0) {
+        const { error: hardDeleteError } = await supabase
+          .from('user_drug_inventory')
+          .delete()
+          .in('id', drugsToHardDelete);
+
+        if (hardDeleteError) {
+          console.error('Error hard deleting drugs:', hardDeleteError);
+          return { error: hardDeleteError.message };
+        }
+        totalDeleted += drugsToHardDelete.length;
+      }
+
+      // Soft delete drugs with history
+      if (drugsToSoftDelete.length > 0) {
+        const { error: softDeleteError } = await supabase
+          .from('user_drug_inventory')
+          .update({ is_active: false })
+          .in('id', drugsToSoftDelete);
+
+        if (softDeleteError) {
+          console.error('Error soft deleting drugs:', softDeleteError);
+          return { error: softDeleteError.message };
+        }
+        totalDeleted += drugsToSoftDelete.length;
+      }
+
+      return { error: null, deletedCount: totalDeleted };
+    } catch (error) {
+      console.error('Error in deleteAllDrugsFromInventory:', error);
+      return { error: 'Failed to delete all drugs' };
     }
+  }
 
-    // Soft delete all active drugs for this user
-    const { error } = await supabase
-      .from('user_drug_inventory')
-      .update({ is_active: false })
-      .eq('user_id', user.id)
-      .eq('is_active', true);
+  // Cleanup old inactive records (can be run periodically)
+  static async cleanupOldInactiveRecords(daysOld: number = 90): Promise<{ error: string | null; cleanedCount?: number }> {
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - daysOld);
 
-    if (error) {
-      console.error('Error deleting all drugs from inventory:', error);
-      return { error: error.message };
+      // Get inactive drugs older than cutoff that have no recent history
+      const { data: oldInactive, error: fetchError } = await supabase
+        .from('user_drug_inventory')
+        .select('id, updated_at')
+        .eq('is_active', false)
+        .lt('updated_at', cutoffDate.toISOString());
+
+      if (fetchError) {
+        console.error('Error fetching old inactive drugs:', fetchError);
+        return { error: fetchError.message };
+      }
+
+      if (!oldInactive || oldInactive.length === 0) {
+        return { error: null, cleanedCount: 0 };
+      }
+
+      const oldDrugIds = oldInactive.map(drug => drug.id);
+
+      // Check if any of these old drugs have recent diagnosis or usage history
+      const recentHistoryCutoff = new Date();
+      recentHistoryCutoff.setDate(recentHistoryCutoff.getDate() - 30); // Keep if used in last 30 days
+
+      const { data: recentHistory, error: historyError } = await supabase
+        .from('diagnosis_drug_suggestions')
+        .select('drug_id')
+        .in('drug_id', oldDrugIds)
+        .gte('created_at', recentHistoryCutoff.toISOString());
+
+      if (historyError) {
+        console.error('Error checking recent history:', historyError);
+        return { error: historyError.message };
+      }
+
+      const recentHistoryIds = new Set((recentHistory || []).map(d => d.drug_id));
+      const safeToDeleteIds = oldDrugIds.filter(id => !recentHistoryIds.has(id));
+
+      if (safeToDeleteIds.length === 0) {
+        return { error: null, cleanedCount: 0 };
+      }
+
+      // Hard delete old inactive records that are safe to remove
+      const { error: deleteError } = await supabase
+        .from('user_drug_inventory')
+        .delete()
+        .in('id', safeToDeleteIds);
+
+      if (deleteError) {
+        console.error('Error cleaning up old inactive records:', deleteError);
+        return { error: deleteError.message };
+      }
+
+      return { error: null, cleanedCount: safeToDeleteIds.length };
+    } catch (error) {
+      console.error('Error in cleanupOldInactiveRecords:', error);
+      return { error: 'Failed to cleanup old records' };
     }
-
-    return { error: null, deletedCount: count || 0 };
   }
 
   // Search drugs by name or indication
