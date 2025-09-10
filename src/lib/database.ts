@@ -340,7 +340,7 @@ export class N8nService {
       'cough|klepu|runny nose|iesnas|cold|saaukstēšan|respiratory|elpceļ': ['acc', 'mucosolvan', 'broncho', 'actifed', 'coldargan', 'sirup', 'expectorant'],
       
       // Digestive Issues
-      'nausea|vomit|vemšan|diarrhea|caureja|stomach|kuņģ|gastro': ['metoclopramid', 'loperamid', 'smecta', 'rehydron', 'omeprazol', 'antacid'],
+      'nausea|vomit|vemšan|diarrhea|caureja|stomach|kuņģ|gastro|constipation|aizcietējum|bloating|uzpūšan|gas|gāz|meteorism|digestive|gremošan|bowel|zarn|intestinal': ['metoclopramid', 'loperamid', 'smecta', 'rehydron', 'omeprazol', 'antacid', 'lactulose', 'laktulose', 'duphalac', 'simeticon', 'espumisan', 'motilium', 'disflatyl'],
       
       // Infections
       'infection|infekcij|antibiotic|antibiotik|bacteria|bakterij': ['azithromycin', 'azibiot', 'amoxicillin', 'cipro', 'betaklav', 'ceftriaxon'],
@@ -416,13 +416,21 @@ export class N8nService {
             // Filter and prioritize most relevant drugs
             const relevantDrugs = this.filterRelevantDrugs(userDrugs, formData.complaint + ' ' + (formData.symptoms || ''));
             
-            // Format drug inventory for AI analysis (top 30 with basic info)
+            // Format drug inventory for AI analysis (top 150 with essential info)
             drugInventory = relevantDrugs
-              .slice(0, 30) // Reduced to 30 most relevant drugs to prevent overload
+              .slice(0, 150) // Send up to 150 most relevant drugs to avoid payload size issues
               .map(drug => ({
+                id: drug.id,
                 name: drug.drug_name,
-                form: drug.dosage_form,
-                strength: drug.strength
+                generic_name: drug.generic_name,
+                dosage_form: drug.dosage_form,
+                strength: drug.strength,
+                active_ingredient: drug.active_ingredient,
+                indications: drug.indications?.slice(0, 3), // Limit to 3 indications
+                dosage_adults: drug.dosage_adults,
+                stock_quantity: drug.stock_quantity,
+                is_prescription_only: drug.is_prescription_only,
+                category: drug.category?.name
               }));
           }
         }
@@ -490,6 +498,13 @@ export class N8nService {
       console.log('Sending request to local API route:', this.API_ROUTE);
       console.log('Request payload size:', JSON.stringify(payload).length, 'characters');
       console.log('Drug inventory items:', drugInventory?.length || 0);
+      
+      // Check if payload is too large (>1MB)
+      const payloadSize = JSON.stringify(payload).length;
+      if (payloadSize > 1000000) {
+        console.warn('Large payload detected:', payloadSize, 'characters');
+      }
+      
       console.log('Sample payload:', {
         ...payload,
         user_drug_inventory: drugInventory?.length ? `[${drugInventory.length} items]` : drugInventory

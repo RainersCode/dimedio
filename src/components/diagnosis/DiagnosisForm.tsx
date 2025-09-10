@@ -252,7 +252,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       drug.drug_name.toLowerCase().includes(query.toLowerCase()) ||
       (drug.generic_name && drug.generic_name.toLowerCase().includes(query.toLowerCase())) ||
       (drug.brand_name && drug.brand_name.toLowerCase().includes(query.toLowerCase()))
-    ).slice(0, 5); // Limit to 5 suggestions
+    ).slice(0, 25); // Increased to 25 suggestions for larger drug choice from inventory
 
     setDrugSearchResults(filtered);
     setShowDrugSuggestions(prev => ({ ...prev, [fieldKey]: filtered.length > 0 }));

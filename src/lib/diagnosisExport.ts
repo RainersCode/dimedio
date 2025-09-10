@@ -8,59 +8,59 @@ export class DiagnosisExportService {
     // Create workbook and worksheet
     const wb = XLSX.utils.book_new();
     
-    // Create the main diagnosis data
+    // Helper function to fix encoding issues
+    const fixEncoding = (text: string): string => {
+      if (!text) return '';
+      return text
+        .replace(/paciÅ†as/g, 'paciņas')
+        .replace(/Å†/g, 'ņ')
+        .replace(/Ä/g, 'ā')
+        .replace(/Å/g, 'š')
+        .replace(/Ä«/g, 'ī')
+        .replace(/Äķ/g, 'ķ')
+        .replace(/Ä/g, 'č')
+        .replace(/Ě/g, 'ē')
+        .replace(/Ł/g, 'ļ')
+        .replace(/Ū/g, 'ū')
+        .replace(/Ž/g, 'ž');
+    };
+    
+    // Create compact diagnosis data - fit in half A4 page
     const diagnosisData = [
       ['MEDICAL DIAGNOSIS REPORT', '', '', ''],
-      ['', '', '', ''],
       ['Date:', new Date(diagnosis.created_at).toLocaleDateString(), '', ''],
-      ['Diagnosis ID:', diagnosis.id, '', ''],
-      ['', '', '', ''],
-      ['PATIENT INFORMATION', '', '', ''],
-      ['Name:', `${diagnosis.patient_name || ''} ${diagnosis.patient_surname || ''}`.trim() || 'Not specified', '', ''],
-      ['Patient ID:', diagnosis.patient_id || 'Not specified', '', ''],
-      ['Age:', diagnosis.patient_age || 'Not specified', '', ''],
-      ['Gender:', diagnosis.patient_gender || 'Not specified', '', ''],
-      ['Date of Birth:', diagnosis.date_of_birth || 'Not specified', '', ''],
-      ['', '', '', ''],
-      ['VITAL SIGNS', '', '', ''],
-      ['Blood Pressure:', diagnosis.blood_pressure_systolic && diagnosis.blood_pressure_diastolic ? 
-        `${diagnosis.blood_pressure_systolic}/${diagnosis.blood_pressure_diastolic} mmHg` : 'Not recorded', '', ''],
-      ['Heart Rate:', diagnosis.heart_rate ? `${diagnosis.heart_rate} bpm` : 'Not recorded', '', ''],
-      ['Temperature:', diagnosis.temperature ? `${diagnosis.temperature}°C` : 'Not recorded', '', ''],
-      ['Respiratory Rate:', diagnosis.respiratory_rate ? `${diagnosis.respiratory_rate}/min` : 'Not recorded', '', ''],
-      ['Oxygen Saturation:', diagnosis.oxygen_saturation ? `${diagnosis.oxygen_saturation}%` : 'Not recorded', '', ''],
-      ['Weight:', diagnosis.weight ? `${diagnosis.weight} kg` : 'Not recorded', '', ''],
-      ['Height:', diagnosis.height ? `${diagnosis.height} cm` : 'Not recorded', '', ''],
-      ['', '', '', ''],
-      ['CHIEF COMPLAINT', '', '', ''],
-      ['Complaint:', diagnosis.complaint, '', ''],
-      ['Duration:', diagnosis.complaint_duration || 'Not specified', '', ''],
-      ['Pain Scale:', diagnosis.pain_scale ? `${diagnosis.pain_scale}/10` : 'Not assessed', '', ''],
-      ['Symptom Onset:', diagnosis.symptom_onset || 'Not specified', '', ''],
-      ['Associated Symptoms:', diagnosis.associated_symptoms || 'None reported', '', ''],
-      ['', '', '', ''],
-      ['MEDICAL HISTORY', '', '', ''],
-      ['Allergies:', diagnosis.allergies || 'None known', '', ''],
-      ['Current Medications:', diagnosis.current_medications || 'None', '', ''],
-      ['Chronic Conditions:', diagnosis.chronic_conditions || 'None', '', ''],
-      ['Previous Surgeries:', diagnosis.previous_surgeries || 'None', '', ''],
-      ['Previous Injuries:', diagnosis.previous_injuries || 'None', '', ''],
-      ['', '', '', ''],
-      ['DIAGNOSIS', '', '', ''],
-      ['Primary Diagnosis:', diagnosis.primary_diagnosis || 'Pending evaluation', '', ''],
-      ['Differential Diagnoses:', diagnosis.differential_diagnoses?.join(', ') || 'None listed', '', ''],
-      ['Severity Level:', diagnosis.severity_level || 'Not assessed', '', ''],
-      ['Confidence Score:', diagnosis.confidence_score ? `${Math.round(diagnosis.confidence_score * 100)}%` : 'Not available', '', ''],
-      ['', '', '', ''],
-      ['TREATMENT PLAN', '', '', ''],
-      ['Recommended Actions:', diagnosis.recommended_actions?.join(', ') || 'None specified', '', ''],
-      ['Treatment:', diagnosis.treatment?.join(', ') || 'None prescribed', '', ''],
-      ['', '', '', ''],
-      ['PHYSICIAN INFORMATION', '', '', ''],
-      ['Physician Name:', '________________________________', '', ''],
-      ['License Number:', '________________________________', '', ''],
-      ['Signature:', '________________________________', '', ''],
-      ['Date:', '________________________________', '', ''],
+      ['Patient:', `${diagnosis.patient_name || ''} ${diagnosis.patient_surname || ''}`.trim() || 'Not specified', 'Age:', diagnosis.patient_age || 'N/A'],
+      ['Complaint:', fixEncoding(diagnosis.improved_patient_history || diagnosis.complaint), '', ''],
+      ['Primary Diagnosis:', fixEncoding(diagnosis.primary_diagnosis || 'Pending evaluation'), '', ''],
+      ...(diagnosis.differential_diagnoses && diagnosis.differential_diagnoses.length > 0 ? [
+        ['Differential Diagnoses:', fixEncoding(diagnosis.differential_diagnoses.join(', ')), '', '']
+      ] : []),
+      ['Treatment:', fixEncoding(diagnosis.treatment?.join(', ') || 'None prescribed'), '', ''],
+      ['Current Medications:', fixEncoding(diagnosis.current_medications || 'None'), '', ''],
+      // All drugs listed by name only
+      ...((diagnosis.drug_suggestions && diagnosis.drug_suggestions.length > 0) ? 
+        diagnosis.drug_suggestions.map((drug: any) => [
+          fixEncoding(drug.drug_name || drug.name || 'Unknown drug'),
+          fixEncoding(drug.suggested_dosage || ''),
+          fixEncoding(drug.treatment_duration || ''),
+          fixEncoding(drug.administration_notes || '')
+        ]) : []),
+      ...((diagnosis.inventory_drugs && diagnosis.inventory_drugs.length > 0) ? 
+        diagnosis.inventory_drugs.map((drug: any) => [
+          fixEncoding(drug.drug_name || drug.name || 'Unknown drug'),
+          fixEncoding(drug.dosage || drug.suggested_dosage || ''),
+          fixEncoding(drug.duration || drug.treatment_duration || ''),
+          fixEncoding(drug.instructions || drug.administration_notes || '')
+        ]) : []),
+      ...((diagnosis.additional_therapy && diagnosis.additional_therapy.length > 0) ? 
+        diagnosis.additional_therapy.map((therapy: any) => [
+          fixEncoding(typeof therapy === 'string' ? therapy : 
+            (therapy.drug_name || therapy.name || therapy.therapy_name || 'Unknown therapy')),
+          fixEncoding(therapy.duration || ''),
+          fixEncoding(therapy.notes || therapy.instructions || ''),
+          ''
+        ]) : []),
+      ['Physician:', '________________________________', 'Date:', '________________'],
     ];
 
     // Convert to worksheet
@@ -74,170 +74,137 @@ export class DiagnosisExportService {
       { width: 15 }  // Column D
     ];
 
-    // Style the header
-    ws['A1'].s = {
-      font: { bold: true, sz: 16 },
-      alignment: { horizontal: 'center' }
-    };
-
-    // Style section headers
-    const sectionHeaders = ['A6', 'A13', 'A22', 'A28', 'A35', 'A40', 'A43'];
-    sectionHeaders.forEach(cell => {
-      if (ws[cell]) {
-        ws[cell].s = {
-          font: { bold: true, sz: 12 },
-          fill: { fgColor: { rgb: 'F3F4F6' } }
-        };
-      }
-    });
+    // Style the header for compact format
+    if (ws['A1']) {
+      ws['A1'].s = {
+        font: { bold: true, sz: 14 },
+        alignment: { horizontal: 'center' }
+      };
+    }
 
     XLSX.utils.book_append_sheet(wb, ws, 'Diagnosis Report');
     
     const filename = fileName || `diagnosis_report_${diagnosis.id.slice(0, 8)}_${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(wb, filename);
+    
+    // Write file with proper encoding options for Unicode support
+    XLSX.writeFile(wb, filename, {
+      bookType: 'xlsx',
+      type: 'binary',
+      compression: true
+    });
   }
 
   // Export diagnosis to PDF
   static exportToPDF(diagnosis: Diagnosis, fileName?: string) {
     const pdf = new jsPDF('p', 'mm', 'a4');
     
-    // Set up fonts and spacing
+    // Set up fonts and spacing for compact layout (half A4 page max)
     const pageWidth = pdf.internal.pageSize.width;
-    const margin = 20;
-    const lineHeight = 6;
+    const margin = 15;
+    const lineHeight = 4.5; // Reduced line height
     let currentY = margin;
 
-    // Helper function to add text with proper formatting
-    const addText = (text: string, x: number, fontSize: number = 10, style: 'normal' | 'bold' = 'normal') => {
-      pdf.setFontSize(fontSize);
-      pdf.setFont('helvetica', style);
-      pdf.text(text, x, currentY);
-      currentY += lineHeight;
+    // Helper function to sanitize text for PDF output
+    const sanitizeText = (text: string): string => {
+      if (!text) return '';
+      
+      // First fix common encoding corruption issues for Latvian
+      let fixedText = text
+        .replace(/paciÅ†as/g, 'pacinas')
+        .replace(/Å†/g, 'n')
+        .replace(/Ä/g, 'a')
+        .replace(/Å/g, 's')
+        .replace(/Ä«/g, 'i')
+        .replace(/Äķ/g, 'k')
+        .replace(/Ä/g, 'c')
+        .replace(/Ě/g, 'e')
+        .replace(/Ł/g, 'l')
+        .replace(/Ū/g, 'u')
+        .replace(/Ž/g, 'z');
+      
+      // Replace problematic Unicode characters with closest ASCII equivalents for PDF compatibility
+      return fixedText
+        .replace(/[āĀ]/g, 'a')
+        .replace(/[čČ]/g, 'c')
+        .replace(/[ēĒ]/g, 'e')
+        .replace(/[ģĢ]/g, 'g')
+        .replace(/[īĪ]/g, 'i')
+        .replace(/[ķĶ]/g, 'k')
+        .replace(/[ļĻ]/g, 'l')
+        .replace(/[ņŅ]/g, 'n')
+        .replace(/[šŠ]/g, 's')
+        .replace(/[ūŪ]/g, 'u')
+        .replace(/[žŽ]/g, 'z')
+        .replace(/[^\x20-\x7E]/g, '?'); // Replace any remaining non-ASCII with ?
     };
 
-    const addSection = (title: string) => {
-      currentY += 3;
-      pdf.setFontSize(11);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(title, margin, currentY);
-      currentY += lineHeight + 2;
-    };
 
-    const addField = (label: string, value: string) => {
-      pdf.setFontSize(10);
+    const addCompactField = (label: string, value: string) => {
+      pdf.setFontSize(9);
       pdf.setFont('helvetica', 'bold');
-      pdf.text(`${label}:`, margin, currentY);
+      pdf.text(sanitizeText(`${label}:`), margin, currentY);
       pdf.setFont('helvetica', 'normal');
       const labelWidth = pdf.getTextWidth(`${label}: `);
       
-      // Handle long text with word wrapping
-      const maxWidth = pageWidth - margin - labelWidth - 10;
-      const lines = pdf.splitTextToSize(value, maxWidth);
-      
-      if (lines.length === 1) {
-        pdf.text(value, margin + labelWidth, currentY);
-        currentY += lineHeight;
-      } else {
-        pdf.text(lines[0], margin + labelWidth, currentY);
-        currentY += lineHeight;
-        for (let i = 1; i < lines.length; i++) {
-          pdf.text(lines[i], margin + 10, currentY);
-          currentY += lineHeight;
-        }
-      }
+      const sanitizedValue = sanitizeText(value);
+      pdf.text(sanitizedValue, margin + labelWidth, currentY);
+      currentY += lineHeight;
     };
 
-    // Header
-    pdf.setFontSize(16);
+    // Compact Header
+    pdf.setFontSize(14);
     pdf.setFont('helvetica', 'bold');
-    pdf.text('MEDICAL DIAGNOSIS REPORT', pageWidth / 2, currentY, { align: 'center' });
-    currentY += lineHeight * 2;
+    pdf.text(sanitizeText('MEDICAL DIAGNOSIS REPORT'), pageWidth / 2, currentY, { align: 'center' });
+    currentY += lineHeight * 1.5;
 
-    // Date and ID
-    addField('Date', new Date(diagnosis.created_at).toLocaleDateString());
-    addField('Diagnosis ID', diagnosis.id);
-
-    // Patient Information
-    addSection('PATIENT INFORMATION');
-    addField('Name', `${diagnosis.patient_name || ''} ${diagnosis.patient_surname || ''}`.trim() || 'Not specified');
-    addField('Patient ID', diagnosis.patient_id || 'Not specified');
-    addField('Age', diagnosis.patient_age?.toString() || 'Not specified');
-    addField('Gender', diagnosis.patient_gender || 'Not specified');
-    if (diagnosis.date_of_birth) {
-      addField('Date of Birth', diagnosis.date_of_birth);
+    // Compact essential information only
+    addCompactField('Date', new Date(diagnosis.created_at).toLocaleDateString());
+    addCompactField('Patient', `${diagnosis.patient_name || ''} ${diagnosis.patient_surname || ''}`.trim() || 'Not specified');
+    if (diagnosis.patient_age) addCompactField('Age', diagnosis.patient_age.toString());
+    addCompactField('Complaint', diagnosis.improved_patient_history || diagnosis.complaint);
+    addCompactField('Primary Diagnosis', diagnosis.primary_diagnosis || 'Pending evaluation');
+    if (diagnosis.differential_diagnoses && diagnosis.differential_diagnoses.length > 0) {
+      addCompactField('Differential Diagnoses', diagnosis.differential_diagnoses.join(', '));
     }
+    if (diagnosis.treatment?.length) addCompactField('Treatment', diagnosis.treatment.join(', '));
+    if (diagnosis.current_medications) addCompactField('Current Medications', diagnosis.current_medications);
 
-    // Vital Signs
-    addSection('VITAL SIGNS');
-    if (diagnosis.blood_pressure_systolic && diagnosis.blood_pressure_diastolic) {
-      addField('Blood Pressure', `${diagnosis.blood_pressure_systolic}/${diagnosis.blood_pressure_diastolic} mmHg`);
+    // All drugs listed by name only (no categories)
+    if (diagnosis.drug_suggestions && diagnosis.drug_suggestions.length > 0) {
+      diagnosis.drug_suggestions.forEach((drug: any) => {
+        const drugName = drug.drug_name || drug.name || 'Unknown drug';
+        const dosage = drug.suggested_dosage ? ` ${drug.suggested_dosage}` : '';
+        const duration = drug.treatment_duration ? ` for ${drug.treatment_duration}` : '';
+        addCompactField(drugName, `${dosage}${duration}`);
+      });
     }
-    if (diagnosis.heart_rate) addField('Heart Rate', `${diagnosis.heart_rate} bpm`);
-    if (diagnosis.temperature) addField('Temperature', `${diagnosis.temperature}°C`);
-    if (diagnosis.respiratory_rate) addField('Respiratory Rate', `${diagnosis.respiratory_rate}/min`);
-    if (diagnosis.oxygen_saturation) addField('Oxygen Saturation', `${diagnosis.oxygen_saturation}%`);
-    if (diagnosis.weight) addField('Weight', `${diagnosis.weight} kg`);
-    if (diagnosis.height) addField('Height', `${diagnosis.height} cm`);
-
-    // Chief Complaint
-    addSection('CHIEF COMPLAINT');
-    addField('Complaint', diagnosis.complaint);
-    if (diagnosis.complaint_duration) addField('Duration', diagnosis.complaint_duration);
-    if (diagnosis.pain_scale) addField('Pain Scale', `${diagnosis.pain_scale}/10`);
-    if (diagnosis.symptom_onset) addField('Symptom Onset', diagnosis.symptom_onset);
-    if (diagnosis.associated_symptoms) addField('Associated Symptoms', diagnosis.associated_symptoms);
-
-    // Medical History  
-    addSection('MEDICAL HISTORY');
-    addField('Allergies', diagnosis.allergies || 'None known');
-    addField('Current Medications', diagnosis.current_medications || 'None');
-    addField('Chronic Conditions', diagnosis.chronic_conditions || 'None');
-    if (diagnosis.previous_surgeries) addField('Previous Surgeries', diagnosis.previous_surgeries);
-    if (diagnosis.previous_injuries) addField('Previous Injuries', diagnosis.previous_injuries);
-
-    // Check if we need a new page
-    if (currentY > 250) {
-      pdf.addPage();
-      currentY = margin;
-    }
-
-    // Diagnosis
-    addSection('DIAGNOSIS');
-    addField('Primary Diagnosis', diagnosis.primary_diagnosis || 'Pending evaluation');
-    if (diagnosis.differential_diagnoses?.length) {
-      addField('Differential Diagnoses', diagnosis.differential_diagnoses.join(', '));
-    }
-    if (diagnosis.severity_level) addField('Severity Level', diagnosis.severity_level);
-    if (diagnosis.confidence_score) {
-      addField('Confidence Score', `${Math.round(diagnosis.confidence_score * 100)}%`);
-    }
-
-    // Treatment Plan
-    addSection('TREATMENT PLAN');
-    if (diagnosis.recommended_actions?.length) {
-      addField('Recommended Actions', diagnosis.recommended_actions.join(', '));
-    }
-    if (diagnosis.treatment?.length) {
-      addField('Treatment', diagnosis.treatment.join(', '));
-    }
-
-    // Physician signature area (bottom 1/4 of page)
-    const signatureY = pdf.internal.pageSize.height - 50;
-    currentY = Math.max(currentY + 10, signatureY);
     
-    addSection('PHYSICIAN INFORMATION');
-    currentY += 5;
+    if (diagnosis.inventory_drugs && diagnosis.inventory_drugs.length > 0) {
+      diagnosis.inventory_drugs.forEach((drug: any) => {
+        const drugName = drug.drug_name || drug.name || 'Unknown drug';
+        const dosage = drug.dosage || drug.suggested_dosage || '';
+        const duration = drug.duration || drug.treatment_duration || '';
+        const instructions = drug.instructions || drug.administration_notes || '';
+        const details = `${dosage} ${duration} ${instructions}`.trim();
+        addCompactField(drugName, details);
+      });
+    }
     
-    // Signature fields
-    pdf.setFontSize(10);
+    if (diagnosis.additional_therapy && diagnosis.additional_therapy.length > 0) {
+      diagnosis.additional_therapy.forEach((therapy: any) => {
+        const therapyName = typeof therapy === 'string' ? therapy : 
+          (therapy.drug_name || therapy.name || therapy.therapy_name || 'Unknown therapy');
+        const duration = therapy.duration || '';
+        const notes = therapy.notes || therapy.instructions || '';
+        addCompactField(therapyName, `${duration} ${notes}`.trim());
+      });
+    }
+
+    // Compact signature area
+    currentY += lineHeight;
+    pdf.setFontSize(8);
     pdf.setFont('helvetica', 'normal');
-    pdf.text('Physician Name: _________________________________', margin, currentY);
-    currentY += lineHeight * 2;
-    pdf.text('License Number: _________________________________', margin, currentY);
-    currentY += lineHeight * 2;
-    pdf.text('Signature: _________________________________', margin, currentY);
-    currentY += lineHeight * 2;
-    pdf.text('Date: _________________________________', margin, currentY);
+    pdf.text('Physician: ____________________________  Date: __________', margin, currentY);
 
     const filename = fileName || `diagnosis_report_${diagnosis.id.slice(0, 8)}_${new Date().toISOString().split('T')[0]}.pdf`;
     pdf.save(filename);
@@ -245,68 +212,107 @@ export class DiagnosisExportService {
 
   // Export diagnosis to Word-compatible format (actually RTF)
   static exportToWord(diagnosis: Diagnosis, fileName?: string) {
-    const rtfContent = `{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Times New Roman;}}
+    // Helper function to escape RTF text and handle Unicode characters
+    const escapeRtfText = (text: string): string => {
+      if (!text) return '';
+      
+      // First fix common encoding corruption issues for Latvian
+      let fixedText = text
+        .replace(/paciÅ†as/g, 'paciņas')
+        .replace(/Å†/g, 'ņ')
+        .replace(/Ä/g, 'ā')
+        .replace(/Å/g, 'š')
+        .replace(/Ä«/g, 'ī')
+        .replace(/Äķ/g, 'ķ')
+        .replace(/Ä/g, 'č')
+        .replace(/Ě/g, 'ē')
+        .replace(/Ł/g, 'ļ')
+        .replace(/Ū/g, 'ū')
+        .replace(/Ž/g, 'ž');
+      
+      return fixedText
+        .replace(/\\/g, '\\\\')
+        .replace(/\{/g, '\\{')
+        .replace(/\}/g, '\\}')
+        .replace(/[üûùúūũûăâåäáàậắằẵặấầẩẫậāæçčċćđðéêëèēęěğģīîïìíįķļńñňôöòóōõøšśşŧţțūûüùúžźż]/gi, (match) => {
+          // Convert Unicode characters to RTF Unicode escape sequences
+          const code = match.charCodeAt(0);
+          return `\\u${code}?`;
+        });
+    };
+
+    // Helper function to format drug lists for RTF with drug names as titles
+    const formatDrugListWithTitles = (drugs: any[], suffix: string, formatFunc: (drug: any) => { name: string, details: string }): string => {
+      if (!drugs || drugs.length === 0) {
+        return `{\\b ${suffix}:} None\\par`;
+      }
+      
+      let result = '';
+      drugs.forEach(drug => {
+        const { name, details } = formatFunc(drug);
+        result += `{\\b ${escapeRtfText(name)}: ${suffix}}\\par`;
+        if (details) {
+          result += `\\tab ${escapeRtfText(details)}\\par`;
+        }
+      });
+      return result;
+    };
+
+    // Helper function to format regular drug lists for RTF
+    const formatDrugList = (drugs: any[], listTitle: string, formatFunc: (drug: any) => string): string => {
+      if (!drugs || drugs.length === 0) {
+        return `{\\b ${listTitle}:} None\\par`;
+      }
+      
+      let result = `{\\b ${listTitle}:}\\par`;
+      drugs.forEach(drug => {
+        result += `\\tab - ${escapeRtfText(formatFunc(drug))}\\par`;
+      });
+      return result;
+    };
+    
+    const rtfContent = `{\\rtf1\\ansi\\ansicpg1257\\uc1\\deff0 {\\fonttbl {\\f0\\froman\\fcharset186 Times New Roman;}}
 {\\colortbl;\\red0\\green0\\blue0;}
-\\f0\\fs24
-{\\b\\fs28\\qc MEDICAL DIAGNOSIS REPORT}\\par
+\\f0\\fs20
+{\\b\\fs24\\qc MEDICAL DIAGNOSIS REPORT}\\par
+{\\b Date:} ${escapeRtfText(new Date(diagnosis.created_at).toLocaleDateString())}\\par
+{\\b Patient:} ${escapeRtfText(`${diagnosis.patient_name || ''} ${diagnosis.patient_surname || ''}`.trim() || 'Not specified')}\\par
+${diagnosis.patient_age ? `{\\b Age:} ${diagnosis.patient_age}\\par` : ''}
+{\\b Complaint:} ${escapeRtfText(diagnosis.improved_patient_history || diagnosis.complaint)}\\par
+{\\b Primary Diagnosis:} ${escapeRtfText(diagnosis.primary_diagnosis || 'Pending evaluation')}\\par
+${diagnosis.differential_diagnoses && diagnosis.differential_diagnoses.length > 0 ? `{\\b Differential Diagnoses:} ${escapeRtfText(diagnosis.differential_diagnoses.join(', '))}\\par` : ''}
+${diagnosis.treatment?.length ? `{\\b Treatment:} ${escapeRtfText(diagnosis.treatment.join(', '))}\\par` : ''}
+${diagnosis.current_medications ? `{\\b Current Medications:} ${escapeRtfText(diagnosis.current_medications)}\\par` : ''}
+${diagnosis.drug_suggestions && diagnosis.drug_suggestions.length > 0 ? 
+  diagnosis.drug_suggestions.map((drug: any) => {
+    const drugName = drug.drug_name || drug.name || 'Unknown drug';
+    const dosage = drug.suggested_dosage ? ` ${drug.suggested_dosage}` : '';
+    const duration = drug.treatment_duration ? ` for ${drug.treatment_duration}` : '';
+    return `{\\b ${escapeRtfText(drugName)}:} ${escapeRtfText(`${dosage}${duration}`.trim())}\\par`;
+  }).join('') : ''}
+${diagnosis.inventory_drugs && diagnosis.inventory_drugs.length > 0 ? 
+  diagnosis.inventory_drugs.map((drug: any) => {
+    const drugName = drug.drug_name || drug.name || 'Unknown drug';
+    const dosage = drug.dosage || drug.suggested_dosage || '';
+    const duration = drug.duration || drug.treatment_duration || '';
+    const instructions = drug.instructions || drug.administration_notes || '';
+    const details = `${dosage} ${duration} ${instructions}`.trim();
+    return `{\\b ${escapeRtfText(drugName)}:} ${escapeRtfText(details)}\\par`;
+  }).join('') : ''}
+${diagnosis.additional_therapy && diagnosis.additional_therapy.length > 0 ? 
+  diagnosis.additional_therapy.map((therapy: any) => {
+    const therapyName = typeof therapy === 'string' ? therapy : 
+      (therapy.drug_name || therapy.name || therapy.therapy_name || 'Unknown therapy');
+    const duration = therapy.duration || '';
+    const notes = therapy.notes || therapy.instructions || '';
+    return `{\\b ${escapeRtfText(therapyName)}:} ${escapeRtfText(`${duration} ${notes}`.trim())}\\par`;
+  }).join('') : ''}
 \\par
-{\\b Date:} ${new Date(diagnosis.created_at).toLocaleDateString()}\\par
-{\\b Diagnosis ID:} ${diagnosis.id}\\par
-\\par
-{\\b\\fs26 PATIENT INFORMATION}\\par
-{\\b Name:} ${`${diagnosis.patient_name || ''} ${diagnosis.patient_surname || ''}`.trim() || 'Not specified'}\\par
-{\\b Patient ID:} ${diagnosis.patient_id || 'Not specified'}\\par
-{\\b Age:} ${diagnosis.patient_age || 'Not specified'}\\par
-{\\b Gender:} ${diagnosis.patient_gender || 'Not specified'}\\par
-${diagnosis.date_of_birth ? `{\\b Date of Birth:} ${diagnosis.date_of_birth}\\par` : ''}
-\\par
-{\\b\\fs26 VITAL SIGNS}\\par
-${diagnosis.blood_pressure_systolic && diagnosis.blood_pressure_diastolic ? 
-  `{\\b Blood Pressure:} ${diagnosis.blood_pressure_systolic}/${diagnosis.blood_pressure_diastolic} mmHg\\par` : ''}
-${diagnosis.heart_rate ? `{\\b Heart Rate:} ${diagnosis.heart_rate} bpm\\par` : ''}
-${diagnosis.temperature ? `{\\b Temperature:} ${diagnosis.temperature}°C\\par` : ''}
-${diagnosis.respiratory_rate ? `{\\b Respiratory Rate:} ${diagnosis.respiratory_rate}/min\\par` : ''}
-${diagnosis.oxygen_saturation ? `{\\b Oxygen Saturation:} ${diagnosis.oxygen_saturation}%\\par` : ''}
-${diagnosis.weight ? `{\\b Weight:} ${diagnosis.weight} kg\\par` : ''}
-${diagnosis.height ? `{\\b Height:} ${diagnosis.height} cm\\par` : ''}
-\\par
-{\\b\\fs26 CHIEF COMPLAINT}\\par
-{\\b Complaint:} ${diagnosis.complaint}\\par
-${diagnosis.complaint_duration ? `{\\b Duration:} ${diagnosis.complaint_duration}\\par` : ''}
-${diagnosis.pain_scale ? `{\\b Pain Scale:} ${diagnosis.pain_scale}/10\\par` : ''}
-${diagnosis.symptom_onset ? `{\\b Symptom Onset:} ${diagnosis.symptom_onset}\\par` : ''}
-${diagnosis.associated_symptoms ? `{\\b Associated Symptoms:} ${diagnosis.associated_symptoms}\\par` : ''}
-\\par
-{\\b\\fs26 MEDICAL HISTORY}\\par
-{\\b Allergies:} ${diagnosis.allergies || 'None known'}\\par
-{\\b Current Medications:} ${diagnosis.current_medications || 'None'}\\par
-{\\b Chronic Conditions:} ${diagnosis.chronic_conditions || 'None'}\\par
-${diagnosis.previous_surgeries ? `{\\b Previous Surgeries:} ${diagnosis.previous_surgeries}\\par` : ''}
-${diagnosis.previous_injuries ? `{\\b Previous Injuries:} ${diagnosis.previous_injuries}\\par` : ''}
-\\par
-{\\b\\fs26 DIAGNOSIS}\\par
-{\\b Primary Diagnosis:} ${diagnosis.primary_diagnosis || 'Pending evaluation'}\\par
-${diagnosis.differential_diagnoses?.length ? `{\\b Differential Diagnoses:} ${diagnosis.differential_diagnoses.join(', ')}\\par` : ''}
-${diagnosis.severity_level ? `{\\b Severity Level:} ${diagnosis.severity_level}\\par` : ''}
-${diagnosis.confidence_score ? `{\\b Confidence Score:} ${Math.round(diagnosis.confidence_score * 100)}%\\par` : ''}
-\\par
-{\\b\\fs26 TREATMENT PLAN}\\par
-${diagnosis.recommended_actions?.length ? `{\\b Recommended Actions:} ${diagnosis.recommended_actions.join(', ')}\\par` : ''}
-${diagnosis.treatment?.length ? `{\\b Treatment:} ${diagnosis.treatment.join(', ')}\\par` : ''}
-\\par
-\\par
-{\\b\\fs26 PHYSICIAN INFORMATION}\\par
-\\par
-{\\b Physician Name:} ________________________________\\par
-\\par
-{\\b License Number:} ________________________________\\par
-\\par
-{\\b Signature:} ________________________________\\par
-\\par
-{\\b Date:} ________________________________\\par
+{\\b Physician:} ____________________________  {\\b Date:} __________\\par
 }`;
 
-    const blob = new Blob([rtfContent], { type: 'application/rtf' });
+    // Create blob with proper encoding for RTF
+    const blob = new Blob([rtfContent], { type: 'application/rtf;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

@@ -17,6 +17,7 @@ The application now sends an enhanced payload to your n8n webhook that includes 
   "timestamp": "2024-01-15T10:30:00.000Z",
   "user_drug_inventory": [
     {
+      "id": "uuid-123",
       "name": "Paracetamol 500mg",
       "generic_name": "Acetaminophen",
       "brand_name": "Tylenol",
@@ -24,10 +25,12 @@ The application now sends an enhanced payload to your n8n webhook that includes 
       "dosage_form": "tablet",
       "active_ingredient": "Paracetamol",
       "indications": ["fever", "pain", "headache"],
+      "contraindications": ["liver disease", "alcohol dependency"],
       "dosage_adults": "1-2 tablets every 6 hours",
       "dosage_children": "10-15mg/kg every 6 hours",
       "stock_quantity": 100,
       "is_prescription_only": false,
+      "expiry_date": "2025-12-31",
       "category": "Analgesics"
     }
   ],
@@ -52,29 +55,37 @@ Patient Information:
 
 {{#if $json.has_drug_inventory}}
 Available Drug Inventory:
-The user has the following drugs available in their inventory (only showing drugs with stock > 0):
+The user has the following drugs available in their inventory (top 150 most relevant drugs for this condition):
 
 {{#each $json.user_drug_inventory}}
-- **{{name}}**
+- **{{name}}** (ID: {{id}})
   * Form: {{dosage_form}}
   * Strength: {{#if strength}}{{strength}}{{else}}Not specified{{/if}}
   * Generic: {{#if generic_name}}{{generic_name}}{{else}}Not specified{{/if}}
   * Brand: {{#if brand_name}}{{brand_name}}{{else}}Not specified{{/if}}
   * Active Ingredient: {{#if active_ingredient}}{{active_ingredient}}{{else}}Not specified{{/if}}
+  * Category: {{#if category}}{{category}}{{else}}Not specified{{/if}}
+  * Indications: {{#if indications}}{{indications}}{{else}}Not specified{{/if}}
+  * Contraindications: {{#if contraindications}}{{contraindications}}{{else}}None listed{{/if}}
   * Stock: {{stock_quantity}} units
   * Prescription Only: {{is_prescription_only}}
   * Adult Dosage: {{#if dosage_adults}}{{dosage_adults}}{{else}}Standard dosage recommended{{/if}}
   * Children Dosage: {{#if dosage_children}}{{dosage_children}}{{else}}Consult pediatric guidelines{{/if}}
+  * Expiry: {{#if expiry_date}}{{expiry_date}}{{else}}Not specified{{/if}}
 
 {{/each}}
 
 IMPORTANT INSTRUCTIONS:
 1. When suggesting treatment, PRIORITIZE drugs from the user's inventory if they are appropriate for the condition
 2. Only suggest external drugs if nothing suitable is available in inventory
-3. Consider the drug form (tablet, cream, injection, etc.) when making recommendations
-4. Pay attention to prescription requirements
-5. Use the available strength information for dosage calculations
-6. For drugs with null/empty active_ingredient, try to infer from the drug name
+3. Consider the drug indications - match them to the patient's condition
+4. Check contraindications and avoid suggesting drugs that might harm the patient
+5. Consider the drug form (tablet, cream, injection, etc.) when making recommendations
+6. Pay attention to prescription requirements and stock levels
+7. Use the available strength information for dosage calculations
+8. Check expiry dates - avoid suggesting expired drugs
+9. When responding, use the exact drug ID from the inventory for accurate tracking
+10. The inventory shows up to 150 most relevant drugs for this condition, sorted by relevance - prioritize the top matches
 
 {{else}}
 Note: User has no drug inventory available. Suggest standard treatment options.
@@ -86,18 +97,20 @@ Please provide your response in the following JSON format:
   "differential_diagnoses": ["Alternative diagnosis 1", "Alternative diagnosis 2"],
   "recommended_actions": ["Action 1", "Action 2"],
   "treatment": ["Treatment recommendation 1", "Treatment recommendation 2"],
-  "drug_suggestions": [
+  "inventory_drugs": [
     {
-      "drug_name": "Exact drug name from inventory or external drug name",
-      "source": "inventory",
+      "drug_id": "uuid-123",
+      "drug_name": "Exact drug name from inventory",
       "dosage": "Recommended dosage based on strength and form",
       "duration": "Treatment duration (e.g., '5-7 days', 'as needed')",
       "instructions": "Specific instructions (e.g., 'Take with food', 'Apply topically')",
-      "prescription_required": false
-    },
+      "prescription_required": false,
+      "stock_quantity": 100
+    }
+  ],
+  "additional_therapy": [
     {
       "drug_name": "External drug if needed",
-      "source": "external", 
       "dosage": "Standard dosage",
       "duration": "Treatment duration",
       "instructions": "Usage instructions",

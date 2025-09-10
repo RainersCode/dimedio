@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { DrugInventoryService, formatDrugName, getDrugStockStatus } from '@/lib/drugInventory';
-import type { UserDrugInventory, DiagnosisDrugSuggestion } from '@/types/database';
+import { DatabaseService } from '@/lib/database';
+import type { UserDrugInventory, DiagnosisDrugSuggestion, Diagnosis } from '@/types/database';
 
 interface DrugSuggestionsPanelProps {
   diagnosisId: string;
@@ -45,16 +46,59 @@ export default function DrugSuggestionsPanel({
     }
 
     try {
-      // Load suitable drugs and current suggestions in parallel
-      const [drugsResult, suggestionsResult] = await Promise.all([
-        DrugInventoryService.getDrugsForDiagnosis(primaryDiagnosis),
+      // First fetch the full diagnosis to get AI's drug choices and current suggestions
+      const diagnosisResult = await DatabaseService.getDiagnosisById(diagnosisId);
+      let diagnosis: Diagnosis | null = null;
+      
+      if (!diagnosisResult.error && diagnosisResult.data) {
+        diagnosis = diagnosisResult.data;
+      }
+      
+      // Load AI-suggested inventory drugs and current manual suggestions in parallel
+      const [suggestionsResult] = await Promise.all([
         DrugInventoryService.getDrugSuggestionsForDiagnosis(diagnosisId)
       ]);
 
-      if (drugsResult.error) {
-        setError(drugsResult.error);
+      // Use AI's inventory drug choices from the diagnosis (these are the LLM's selections)
+      if (diagnosis?.inventory_drugs && Array.isArray(diagnosis.inventory_drugs)) {
+        // Convert AI inventory drug choices to UserDrugInventory format for display
+        const aiDrugChoices: UserDrugInventory[] = [];
+        
+        for (const aiDrug of diagnosis.inventory_drugs) {
+          // Try to find the full drug record from user's inventory
+          const { data: fullDrugData } = await DrugInventoryService.getUserDrugById(aiDrug.drug_id || aiDrug.id);
+          if (fullDrugData) {
+            aiDrugChoices.push(fullDrugData);
+          } else {
+            // Fallback: create a minimal record from AI data
+            aiDrugChoices.push({
+              id: aiDrug.drug_id || aiDrug.id || `ai-${Date.now()}`,
+              user_id: '',
+              drug_name: aiDrug.drug_name || aiDrug.name || 'Unknown drug',
+              stock_quantity: aiDrug.stock_quantity || 0,
+              is_active: true,
+              is_prescription_only: aiDrug.prescription_required || false,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              dosage_adults: aiDrug.dosage || '',
+              indications: aiDrug.indications || []
+            });
+          }
+        }
+        setAvailableDrugs(aiDrugChoices);
       } else {
-        setAvailableDrugs(drugsResult.data || []);
+        // Fallback to local matching if no AI choices available
+        const drugsResult = await DrugInventoryService.getDrugsForDiagnosis(
+          primaryDiagnosis,
+          diagnosis?.symptoms || undefined,
+          diagnosis?.improved_patient_history || diagnosis?.complaint
+        );
+        
+        if (drugsResult.error) {
+          setError(drugsResult.error);
+        } else {
+          setAvailableDrugs(drugsResult.data || []);
+        }
       }
 
       if (suggestionsResult.error) {

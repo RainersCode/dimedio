@@ -366,6 +366,33 @@ export class DrugInventoryService {
     }
   }
 
+  // Get a single drug by ID
+  static async getUserDrugById(drugId: string): Promise<{ data: UserDrugInventory | null; error: string | null }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated' };
+    }
+
+    const { data, error } = await supabase
+      .from('user_drug_inventory')
+      .select(`
+        *,
+        category:drug_categories(*)
+      `)
+      .eq('user_id', user.id)
+      .eq('id', drugId)
+      .eq('is_active', true)
+      .single();
+
+    if (error) {
+      console.error('Error fetching drug by ID:', error);
+      return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+  }
+
   // Search drugs by name or indication
   static async searchDrugs(query: string): Promise<{ data: UserDrugInventory[] | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -393,19 +420,12 @@ export class DrugInventoryService {
     return { data, error: null };
   }
 
-  // Get drugs suitable for a diagnosis
-  static async getDrugsForDiagnosis(diagnosisText: string): Promise<{ data: UserDrugInventory[] | null; error: string | null }> {
+  // Get drugs suitable for a diagnosis with improved matching
+  static async getDrugsForDiagnosis(diagnosisText: string, symptoms?: string[], complaint?: string): Promise<{ data: UserDrugInventory[] | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
       return { data: null, error: 'User not authenticated' };
-    }
-
-    // Search for drugs where indications contain keywords from diagnosis
-    const keywords = diagnosisText.toLowerCase().split(' ').filter(word => word.length > 3);
-    
-    if (keywords.length === 0) {
-      return { data: [], error: null };
     }
 
     const { data, error } = await supabase
@@ -416,7 +436,7 @@ export class DrugInventoryService {
       `)
       .eq('user_id', user.id)
       .eq('is_active', true)
-      .gte('stock_quantity', 1) // Only suggest drugs in stock
+      .gt('stock_quantity', 0) // Only drugs with stock
       .order('drug_name', { ascending: true });
 
     if (error) {
@@ -424,15 +444,148 @@ export class DrugInventoryService {
       return { data: null, error: error.message };
     }
 
-    // Filter drugs based on indications containing diagnosis keywords
-    const relevantDrugs = data?.filter(drug => {
-      if (!drug.indications || drug.indications.length === 0) return false;
-      
-      const indicationsText = drug.indications.join(' ').toLowerCase();
-      return keywords.some(keyword => indicationsText.includes(keyword));
-    }) || [];
+    if (!data || data.length === 0) {
+      return { data: [], error: null };
+    }
 
-    return { data: relevantDrugs, error: null };
+    // Enhanced matching algorithm
+    const drugsWithScore = data.map(drug => {
+      let relevanceScore = 0;
+      
+      // Combine all text sources for matching
+      const allText = [
+        diagnosisText || '',
+        complaint || '',
+        ...(symptoms || [])
+      ].join(' ').toLowerCase();
+      
+      // Extract meaningful keywords (medical terms)
+      const keywords = allText
+        .split(/[\s,;.()]+/)
+        .filter(word => word.length > 3)
+        .filter(word => !/^(the|and|for|with|from|this|that|have|been|very|some|such|will|can|may|one|two|three)$/.test(word));
+
+      if (keywords.length === 0) return { drug, score: 0 };
+
+      // Check indications (primary matching)
+      if (drug.indications && drug.indications.length > 0) {
+        const indicationsText = drug.indications.join(' ').toLowerCase();
+        keywords.forEach(keyword => {
+          if (indicationsText.includes(keyword)) {
+            relevanceScore += 5; // High score for indication match
+          }
+        });
+      }
+
+      // Check drug name and generic name for symptom-based matching
+      const drugNames = [
+        drug.drug_name?.toLowerCase() || '',
+        drug.generic_name?.toLowerCase() || '',
+        drug.brand_name?.toLowerCase() || ''
+      ].join(' ');
+
+      // Common medical condition to drug name mappings
+      const conditionMappings = {
+        'pain': ['paracetamol', 'ibuprofen', 'aspirin', 'analgesic', 'nsaid', 'acetaminophen'],
+        'fever': ['paracetamol', 'ibuprofen', 'aspirin', 'antipyretic', 'acetaminophen'],
+        'inflammation': ['ibuprofen', 'diclofenac', 'nsaid', 'inflammatory', 'cortison'],
+        'infection': ['antibiotic', 'amoxicillin', 'azithromycin', 'penicillin', 'doxycycline'],
+        'allergy': ['antihistamine', 'loratadine', 'cetirizine', 'allergic', 'chlorphenamine'],
+        'cough': ['dextromethorphan', 'codeine', 'antitussive', 'expectorant', 'bromhexine'],
+        'cold': ['pseudoephedrine', 'decongestant', 'cold', 'flu', 'phenylephrine'],
+        'headache': ['paracetamol', 'ibuprofen', 'aspirin', 'migraine', 'sumatriptan'],
+        'nausea': ['ondansetron', 'metoclopramide', 'antiemetic', 'dramamine'],
+        'diarrhea': ['loperamide', 'antidiarrheal', 'bismuth', 'smecta'],
+        'constipation': ['laxative', 'lactulose', 'docusate', 'bisacodyl'],
+        'hypertension': ['amlodipine', 'lisinopril', 'metoprolol', 'inhibitor', 'pressure'],
+        'diabetes': ['metformin', 'insulin', 'glibenclamide', 'antidiabetic', 'glucose'],
+        'asthma': ['salbutamol', 'inhaler', 'bronchodilator', 'corticosteroid', 'ventolin'],
+        'gastritis': ['omeprazole', 'ranitidine', 'antacid', 'ppi', 'stomach'],
+        'anxiety': ['diazepam', 'lorazepam', 'anxiolytic', 'benzodiazepine'],
+        'depression': ['sertraline', 'fluoxetine', 'antidepressant', 'ssri'],
+        'ulcer': ['omeprazole', 'ranitidine', 'antacid', 'lansoprazole'],
+        'arthritis': ['ibuprofen', 'diclofenac', 'nsaid', 'inflammatory'],
+        'insomnia': ['melatonin', 'zolpidem', 'sedative', 'hypnotic'],
+        'vitamin': ['vitamin', 'supplement', 'deficiency', 'multivitamin']
+      };
+
+      // Check for condition-based matching
+      Object.entries(conditionMappings).forEach(([condition, drugTypes]) => {
+        if (keywords.some(keyword => 
+          keyword.includes(condition) || 
+          condition.includes(keyword) ||
+          allText.includes(condition)
+        )) {
+          drugTypes.forEach(drugType => {
+            if (drugNames.includes(drugType)) {
+              relevanceScore += 3; // Medium score for condition-drug mapping
+            }
+          });
+        }
+      });
+
+      // Check active ingredient matching
+      if (drug.active_ingredient) {
+        const activeIngredient = drug.active_ingredient.toLowerCase();
+        keywords.forEach(keyword => {
+          if (activeIngredient.includes(keyword) || keyword.includes(activeIngredient)) {
+            relevanceScore += 2; // Lower score for active ingredient match
+          }
+        });
+      }
+
+      // Check therapeutic class matching
+      if (drug.therapeutic_class) {
+        const therapeuticClass = drug.therapeutic_class.toLowerCase();
+        keywords.forEach(keyword => {
+          if (therapeuticClass.includes(keyword)) {
+            relevanceScore += 2;
+          }
+        });
+      }
+
+      // Prioritize drugs with good stock levels
+      if (drug.stock_quantity && drug.stock_quantity > 10) {
+        relevanceScore += 1; // Bonus for good stock levels
+      }
+
+      // Check expiry date - deprioritize soon-to-expire drugs
+      if (drug.expiry_date) {
+        const expiryDate = new Date(drug.expiry_date);
+        const now = new Date();
+        const monthsUntilExpiry = (expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 30);
+        
+        if (monthsUntilExpiry < 3) {
+          relevanceScore -= 2; // Penalize soon-to-expire drugs
+        } else if (monthsUntilExpiry > 12) {
+          relevanceScore += 0.5; // Slight bonus for fresh drugs
+        }
+      }
+
+      return { drug, score: relevanceScore };
+    });
+
+    // Filter out drugs with no relevance and sort by score
+    const relevantDrugs = drugsWithScore
+      .filter(item => item.score > 0)
+      .sort((a, b) => {
+        // First sort by relevance score
+        if (a.score !== b.score) return b.score - a.score;
+        
+        // Then by stock quantity
+        const aStock = a.drug.stock_quantity || 0;
+        const bStock = b.drug.stock_quantity || 0;
+        if (aStock !== bStock) return bStock - aStock;
+        
+        // Finally by expiry date (latest first)
+        const aExpiry = a.drug.expiry_date ? new Date(a.drug.expiry_date).getTime() : 0;
+        const bExpiry = b.drug.expiry_date ? new Date(b.drug.expiry_date).getTime() : 0;
+        return bExpiry - aExpiry;
+      })
+      .map(item => item.drug);
+
+    // Return top 15 most relevant drugs to provide good choices
+    return { data: relevantDrugs.slice(0, 15), error: null };
   }
 
   // Add drug suggestion to diagnosis
