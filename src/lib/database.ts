@@ -17,10 +17,40 @@ export class DatabaseService {
 
     const diagnosisData = {
       user_id: user.id,
-      patient_age: formData.patient_age,
-      patient_gender: formData.patient_gender,
+      // Basic patient info
+      patient_age: formData.patient_age || null,
+      patient_gender: formData.patient_gender || null,
       complaint: formData.complaint,
       symptoms: formData.symptoms ? [formData.symptoms] : null,
+      
+      // Patient identification
+      patient_name: formData.patient_name || null,
+      patient_surname: formData.patient_surname || null,
+      patient_id: formData.patient_id || null,
+      date_of_birth: formData.date_of_birth || null,
+      
+      // Vital signs
+      blood_pressure_systolic: formData.blood_pressure_systolic || null,
+      blood_pressure_diastolic: formData.blood_pressure_diastolic || null,
+      heart_rate: formData.heart_rate || null,
+      temperature: formData.temperature || null,
+      respiratory_rate: formData.respiratory_rate || null,
+      oxygen_saturation: formData.oxygen_saturation || null,
+      weight: formData.weight || null,
+      height: formData.height || null,
+      
+      // Medical history
+      allergies: formData.allergies || null,
+      current_medications: formData.current_medications || null,
+      chronic_conditions: formData.chronic_conditions || null,
+      previous_surgeries: formData.previous_surgeries || null,
+      previous_injuries: formData.previous_injuries || null,
+      
+      // Clinical details
+      complaint_duration: formData.complaint_duration || null,
+      pain_scale: formData.pain_scale || null,
+      symptom_onset: formData.symptom_onset || null,
+      associated_symptoms: formData.associated_symptoms || null,
     };
 
     const { data, error } = await supabase
@@ -311,9 +341,9 @@ export class N8nService {
             // Filter and prioritize most relevant drugs
             const relevantDrugs = this.filterRelevantDrugs(userDrugs, formData.complaint + ' ' + (formData.symptoms || ''));
             
-            // Format drug inventory for AI analysis (top 100 with basic info)
+            // Format drug inventory for AI analysis (top 30 with basic info)
             drugInventory = relevantDrugs
-              .slice(0, 100) // Increased to 100 most relevant drugs
+              .slice(0, 30) // Reduced to 30 most relevant drugs to prevent overload
               .map(drug => ({
                 name: drug.drug_name,
                 form: drug.dosage_form,
@@ -325,16 +355,62 @@ export class N8nService {
         console.log('Could not fetch drug inventory (this is normal if user has no access):', drugError);
       }
 
-      const payload = {
+      // Detect language of the complaint
+      const detectLanguage = (text: string): string => {
+        const lowerText = text.toLowerCase();
+        
+        // Latvian language indicators
+        const latvianWords = ['sāp', 'klepu', 'temperature', 'drudzis', 'galva', 'kuņģ', 'elpošana', 'rīkle', 'seja', 'krūts', 'vēders', 'roku', 'kāju', 'mugura', 'acu', 'ausi', 'deguns', 'sirds', 'pēda'];
+        const latvianChars = /[āēīōūģķļņšž]/;
+        
+        // Russian language indicators  
+        const russianWords = ['боль', 'температура', 'кашель', 'голова', 'живот', 'грудь', 'спина', 'рука', 'нога', 'сердце', 'глаза', 'уши', 'нос'];
+        const russianChars = /[а-яё]/;
+        
+        // German language indicators
+        const germanWords = ['schmerzen', 'fieber', 'husten', 'kopf', 'bauch', 'brust', 'rücken', 'arm', 'bein', 'herz', 'augen', 'ohren', 'nase'];
+        
+        // Check for language indicators
+        if (latvianChars.test(text) || latvianWords.some(word => lowerText.includes(word))) {
+          return 'latvian';
+        } else if (russianChars.test(text) || russianWords.some(word => lowerText.includes(word))) {
+          return 'russian';
+        } else if (germanWords.some(word => lowerText.includes(word))) {
+          return 'german';
+        } else {
+          // Default to English if no specific language detected
+          return 'english';
+        }
+      };
+
+      const detectedLanguage = detectLanguage(formData.complaint + ' ' + (formData.symptoms || ''));
+      console.log('Detected language:', detectedLanguage);
+
+      // Build payload with only filled fields to reduce size
+      const payload: any = {
         complaint: formData.complaint,
         age: formData.patient_age,
         gender: formData.patient_gender,
         symptoms: formData.symptoms,
         timestamp: new Date().toISOString(),
+        detected_language: detectedLanguage,
         // Include drug inventory if available
         user_drug_inventory: drugInventory,
         has_drug_inventory: drugInventory !== null && drugInventory.length > 0,
       };
+
+      // Add medical fields only if they have values (to reduce payload size)
+      if (formData.patient_name) payload.patient_name = formData.patient_name;
+      if (formData.patient_surname) payload.patient_surname = formData.patient_surname;
+      if (formData.allergies) payload.allergies = formData.allergies;
+      if (formData.current_medications) payload.current_medications = formData.current_medications;
+      if (formData.chronic_conditions) payload.chronic_conditions = formData.chronic_conditions;
+      if (formData.temperature) payload.temperature = formData.temperature;
+      if (formData.heart_rate) payload.heart_rate = formData.heart_rate;
+      if (formData.blood_pressure_systolic) payload.blood_pressure_systolic = formData.blood_pressure_systolic;
+      if (formData.blood_pressure_diastolic) payload.blood_pressure_diastolic = formData.blood_pressure_diastolic;
+      if (formData.complaint_duration) payload.complaint_duration = formData.complaint_duration;
+      if (formData.pain_scale !== undefined && formData.pain_scale !== null) payload.pain_scale = formData.pain_scale;
 
       console.log('Sending request to local API route:', this.API_ROUTE);
       console.log('Request payload size:', JSON.stringify(payload).length, 'characters');

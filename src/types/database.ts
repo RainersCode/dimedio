@@ -42,9 +42,36 @@ export interface Diagnosis {
   patient_age?: number;
   patient_gender?: string;
   
+  // Optional Patient Identification
+  patient_name?: string;
+  patient_surname?: string;
+  patient_id?: string;
+  date_of_birth?: string;
+  
+  // Vital Signs
+  blood_pressure_systolic?: number;
+  blood_pressure_diastolic?: number;
+  heart_rate?: number;
+  temperature?: number;
+  respiratory_rate?: number;
+  oxygen_saturation?: number;
+  weight?: number;
+  height?: number;
+  
+  // Medical History
+  allergies?: string;
+  current_medications?: string;
+  chronic_conditions?: string;
+  previous_surgeries?: string;
+  previous_injuries?: string;
+  
   // Patient Complaint/Symptoms
   complaint: string;
   symptoms?: string[];
+  complaint_duration?: string;
+  pain_scale?: number;
+  symptom_onset?: string;
+  associated_symptoms?: string;
   
   // AI Diagnosis Results
   primary_diagnosis?: string;
@@ -112,10 +139,40 @@ export interface PatientProfile {
 
 // Form data types for creating diagnoses
 export interface DiagnosisFormData {
+  // Basic Patient Info
   patient_age?: number;
   patient_gender?: string;
   complaint: string;
   symptoms?: string;
+  
+  // Optional Patient Identification
+  patient_name?: string;
+  patient_surname?: string;
+  patient_id?: string;
+  date_of_birth?: string;
+  
+  // Vital Signs
+  blood_pressure_systolic?: number;
+  blood_pressure_diastolic?: number;
+  heart_rate?: number;
+  temperature?: number;
+  respiratory_rate?: number;
+  oxygen_saturation?: number;
+  weight?: number;
+  height?: number;
+  
+  // Medical History
+  allergies?: string;
+  current_medications?: string;
+  chronic_conditions?: string;
+  previous_surgeries?: string;
+  previous_injuries?: string;
+  
+  // Additional Clinical Information
+  complaint_duration?: string;
+  pain_scale?: number;
+  symptom_onset?: 'sudden' | 'gradual' | '';
+  associated_symptoms?: string;
 }
 
 // Drug suggestion from AI

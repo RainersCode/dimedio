@@ -15,9 +15,36 @@ CREATE TABLE IF NOT EXISTS diagnoses (
     patient_age INTEGER,
     patient_gender VARCHAR(20),
     
+    -- Optional Patient Identification
+    patient_name VARCHAR(100),
+    patient_surname VARCHAR(100), 
+    patient_id VARCHAR(50),
+    date_of_birth DATE,
+    
+    -- Vital Signs
+    blood_pressure_systolic INTEGER,
+    blood_pressure_diastolic INTEGER,
+    heart_rate INTEGER,
+    temperature DECIMAL(4,1),
+    respiratory_rate INTEGER,
+    oxygen_saturation INTEGER,
+    weight DECIMAL(5,2),
+    height INTEGER,
+    
+    -- Medical History
+    allergies TEXT,
+    current_medications TEXT,
+    chronic_conditions TEXT,
+    previous_surgeries TEXT,
+    previous_injuries TEXT,
+    
     -- Patient Complaint/Symptoms
     complaint TEXT NOT NULL,
     symptoms TEXT[],
+    complaint_duration VARCHAR(100),
+    pain_scale INTEGER CHECK (pain_scale >= 0 AND pain_scale <= 10),
+    symptom_onset VARCHAR(20) CHECK (symptom_onset IN ('sudden', 'gradual', '')),
+    associated_symptoms TEXT,
     
     -- AI Diagnosis Results
     primary_diagnosis TEXT,
