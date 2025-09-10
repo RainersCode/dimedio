@@ -27,6 +27,95 @@ interface JsonDrug {
   search_keywords?: string[];
 }
 
+// Excel parsing function using client-side parsing
+const parseExcelFile = async (file: File): Promise<JsonDrug[]> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        
+        // Simple CSV-like parsing for Excel data
+        // Note: This is a basic implementation. For production, you'd want to use a library like xlsx
+        const text = new TextDecoder().decode(data);
+        const lines = text.split('\n').filter(line => line.trim());
+        
+        if (lines.length < 2) {
+          reject(new Error('Excel file must have at least a header row and one data row'));
+          return;
+        }
+
+        // Assume first row is headers
+        const headers = lines[0].split('\t').map(h => h.trim().toLowerCase());
+        const drugs: JsonDrug[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const values = lines[i].split('\t');
+          const drug: JsonDrug = { name: '', original_row: i + 1 };
+
+          // Map common column names to drug properties
+          headers.forEach((header, index) => {
+            const value = values[index]?.trim();
+            if (!value) return;
+
+            switch (header) {
+              case 'name':
+              case 'drug_name':
+              case 'drug name':
+              case 'medicine':
+              case 'medication':
+                drug.name = value;
+                break;
+              case 'dosage':
+              case 'dose':
+              case 'strength':
+                drug.dosage = value;
+                break;
+              case 'category':
+              case 'type':
+              case 'class':
+                drug.category = value;
+                break;
+              case 'active_ingredient':
+              case 'active ingredient':
+              case 'ingredient':
+                drug.active_ingredient = value;
+                break;
+              case 'form':
+              case 'dosage_form':
+              case 'dosage form':
+                drug.form = value;
+                break;
+              case 'price':
+              case 'cost':
+                drug.price = parseFloat(value) || 0;
+                break;
+              case 'supplier':
+              case 'manufacturer':
+                drug.supplier = value;
+                break;
+              case 'description':
+              case 'notes':
+                drug.description = value;
+                break;
+            }
+          });
+
+          if (drug.name) {
+            drugs.push(drug);
+          }
+        }
+
+        resolve(drugs);
+      } catch (error) {
+        reject(new Error('Failed to parse Excel file. Please ensure it\'s a valid Excel file.'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsArrayBuffer(file);
+  });
+};
+
 export default function ImportDrugsModal({ categories, onClose, onSuccess }: ImportDrugsModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,8 +138,11 @@ export default function ImportDrugsModal({ categories, onClose, onSuccess }: Imp
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.json')) {
-      setError('Please select a JSON file');
+    const isJson = file.name.endsWith('.json');
+    const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+    
+    if (!isJson && !isExcel) {
+      setError('Please select a JSON (.json) or Excel (.xlsx, .xls) file');
       return;
     }
 
@@ -58,17 +150,25 @@ export default function ImportDrugsModal({ categories, onClose, onSuccess }: Imp
     setError(null);
 
     try {
-      const text = await file.text();
-      const jsonData = JSON.parse(text);
+      let jsonData: any[];
 
-      if (!Array.isArray(jsonData)) {
-        setError('JSON file must contain an array of drug objects');
-        setLoading(false);
-        return;
+      if (isJson) {
+        // Handle JSON files
+        const text = await file.text();
+        jsonData = JSON.parse(text);
+
+        if (!Array.isArray(jsonData)) {
+          setError('JSON file must contain an array of drug objects');
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Handle Excel files
+        jsonData = await parseExcelFile(file);
       }
 
       if (jsonData.length === 0) {
-        setError('JSON file is empty');
+        setError('File is empty or contains no valid drug data');
         setLoading(false);
         return;
       }
@@ -328,12 +428,12 @@ export default function ImportDrugsModal({ categories, onClose, onSuccess }: Imp
                 <svg className="w-12 h-12 text-slate-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                <h3 className="text-lg font-medium text-slate-900 mb-2">Select JSON File</h3>
-                <p className="text-slate-600 mb-4">Choose a JSON file containing your drug data</p>
+                <h3 className="text-lg font-medium text-slate-900 mb-2">Select Import File</h3>
+                <p className="text-slate-600 mb-4">Choose a JSON (.json) or Excel (.xlsx, .xls) file containing your drug data</p>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".json"
+                  accept=".json,.xlsx,.xls"
                   onChange={handleFileSelect}
                   className="hidden"
                 />

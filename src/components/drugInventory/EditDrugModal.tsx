@@ -48,7 +48,26 @@ export default function EditDrugModal({ drug, categories, onClose, onSuccess }: 
     }
 
     try {
-      const { error } = await DrugInventoryService.updateDrugInInventory(drug.id, formData);
+      // Clean the form data - convert empty strings to null for optional fields
+      const cleanedFormData = {
+        ...formData,
+        category_id: formData.category_id || null,
+        drug_name_lv: formData.drug_name_lv || null,
+        generic_name: formData.generic_name || null,
+        brand_name: formData.brand_name || null,
+        dosage_form: formData.dosage_form || null,
+        strength: formData.strength || null,
+        active_ingredient: formData.active_ingredient || null,
+        dosage_adults: formData.dosage_adults || null,
+        dosage_children: formData.dosage_children || null,
+        supplier: formData.supplier || null,
+        batch_number: formData.batch_number || null,
+        expiry_date: formData.expiry_date || null,
+        notes: formData.notes || null,
+        unit_price: formData.unit_price || null,
+      };
+
+      const { error } = await DrugInventoryService.updateDrugInInventory(drug.id, cleanedFormData);
       
       if (error) {
         setError(error);

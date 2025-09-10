@@ -147,6 +147,41 @@ export class DrugInventoryService {
     return { error: null };
   }
 
+  // Delete all drugs from user's inventory (soft delete)
+  static async deleteAllDrugsFromInventory(): Promise<{ error: string | null; deletedCount?: number }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !user) {
+      return { error: 'User not authenticated' };
+    }
+
+    // First get count of active drugs for confirmation
+    const { count, error: countError } = await supabase
+      .from('user_drug_inventory')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('is_active', true);
+
+    if (countError) {
+      console.error('Error counting drugs:', countError);
+      return { error: countError.message };
+    }
+
+    // Soft delete all active drugs for this user
+    const { error } = await supabase
+      .from('user_drug_inventory')
+      .update({ is_active: false })
+      .eq('user_id', user.id)
+      .eq('is_active', true);
+
+    if (error) {
+      console.error('Error deleting all drugs from inventory:', error);
+      return { error: error.message };
+    }
+
+    return { error: null, deletedCount: count || 0 };
+  }
+
   // Search drugs by name or indication
   static async searchDrugs(query: string): Promise<{ data: UserDrugInventory[] | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();

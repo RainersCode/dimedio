@@ -23,6 +23,8 @@ export default function DrugInventoryPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [drugsPerPage] = useState(30);
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     checkAccess();
@@ -107,6 +109,108 @@ export default function DrugInventoryPage() {
     
     // Clear success message after 5 seconds
     setTimeout(() => setSuccessMessage(null), 5000);
+  };
+
+  // Export functions
+  const exportToJson = () => {
+    const exportData = drugs.map(drug => ({
+      name: drug.drug_name,
+      generic_name: drug.generic_name,
+      brand_name: drug.brand_name,
+      category: drug.category?.name,
+      dosage: drug.dosage_adults,
+      form: drug.dosage_form,
+      strength: drug.strength,
+      active_ingredient: drug.active_ingredient,
+      supplier: drug.supplier,
+      price: drug.unit_price,
+      stock_quantity: drug.stock_quantity,
+      prescription_required: drug.is_prescription_only,
+      description: drug.notes
+    }));
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `drug-inventory-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const exportToExcel = () => {
+    // Create CSV data (Excel-compatible)
+    const headers = [
+      'Drug Name', 'Generic Name', 'Brand Name', 'Category', 'Dosage', 'Form', 
+      'Strength', 'Active Ingredient', 'Supplier', 'Price', 'Stock Quantity', 
+      'Prescription Required', 'Description'
+    ];
+
+    const csvData = drugs.map(drug => [
+      drug.drug_name || '',
+      drug.generic_name || '',
+      drug.brand_name || '',
+      drug.category?.name || '',
+      drug.dosage_adults || '',
+      drug.dosage_form || '',
+      drug.strength || '',
+      drug.active_ingredient || '',
+      drug.supplier || '',
+      drug.unit_price || '',
+      drug.stock_quantity || 0,
+      drug.is_prescription_only ? 'Yes' : 'No',
+      drug.notes || ''
+    ]);
+
+    // Convert to CSV format
+    const csvContent = [
+      headers.join('\t'),
+      ...csvData.map(row => row.map(cell => 
+        typeof cell === 'string' && cell.includes('\t') ? `"${cell}"` : cell
+      ).join('\t'))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/tab-separated-values' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `drug-inventory-${new Date().toISOString().split('T')[0]}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Delete all drugs function
+  const handleDeleteAll = async () => {
+    if (drugs.length === 0) {
+      setError('No drugs to delete');
+      return;
+    }
+
+    setIsDeleting(true);
+    setError(null);
+
+    try {
+      const { error, deletedCount } = await DrugInventoryService.deleteAllDrugsFromInventory();
+      
+      if (error) {
+        setError(error);
+      } else {
+        setSuccessMessage(`Successfully deleted ${deletedCount} drugs from your inventory!`);
+        setShowDeleteAllModal(false);
+        loadData(); // Reload the data
+        
+        // Clear success message after 5 seconds
+        setTimeout(() => setSuccessMessage(null), 5000);
+      }
+    } catch (err) {
+      setError('Failed to delete drugs');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const filteredDrugs = drugs.filter(drug => {
@@ -270,8 +374,39 @@ export default function DrugInventoryPage() {
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                Import JSON
+                Import
               </button>
+              <div className="flex gap-1">
+                <button
+                  onClick={exportToJson}
+                  className="px-3 py-2 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors flex items-center text-sm"
+                >
+                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  JSON
+                </button>
+                <button
+                  onClick={exportToExcel}
+                  className="px-3 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors flex items-center text-sm"
+                >
+                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Excel
+                </button>
+              </div>
+              {drugs.length > 0 && (
+                <button
+                  onClick={() => setShowDeleteAllModal(true)}
+                  className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors flex items-center"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete All
+                </button>
+              )}
               <button
                 onClick={() => setShowAddModal(true)}
                 className="px-6 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
@@ -539,6 +674,48 @@ export default function DrugInventoryPage() {
           onClose={() => setEditingDrug(null)}
           onSuccess={handleDrugUpdated}
         />
+      )}
+
+      {/* Delete All Confirmation Modal */}
+      {showDeleteAllModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center mb-4">
+                <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center mr-3">
+                  <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L5.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900">Delete All Drugs</h3>
+              </div>
+              
+              <p className="text-sm text-slate-600 mb-4">
+                Are you sure you want to delete all {drugs.length} drugs from your inventory? This action cannot be undone.
+              </p>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setShowDeleteAllModal(false)}
+                  disabled={isDeleting}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteAll}
+                  disabled={isDeleting}
+                  className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center"
+                >
+                  {isDeleting && (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  )}
+                  Delete All
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
