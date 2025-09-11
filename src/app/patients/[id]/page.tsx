@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { DiagnosisExportDropdown } from '@/components/diagnosis/DiagnosisExportButtons';
 
 interface PatientDetailsProps {
   params: { id: string };
@@ -22,12 +23,29 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
   const [error, setError] = useState('');
   const [userDrugInventory, setUserDrugInventory] = useState<UserDrugInventory[]>([]);
   const [recordingDispensing, setRecordingDispensing] = useState<{[key: string]: boolean}>({});
+  const [dispensingRecorded, setDispensingRecorded] = useState<{[key: string]: boolean}>({});
 
   useEffect(() => {
     if (user && params.id) {
       fetchPatient();
     }
   }, [user, params.id]);
+
+  // Check localStorage for recorded dispensings when patient data loads
+  useEffect(() => {
+    if (patient?.diagnoses) {
+      const recordedDispensings = JSON.parse(localStorage.getItem('recordedDispensings') || '[]');
+      const recorded: {[key: string]: boolean} = {};
+      
+      patient.diagnoses.forEach(diagnosis => {
+        if (recordedDispensings.includes(diagnosis.id)) {
+          recorded[diagnosis.id] = true;
+        }
+      });
+      
+      setDispensingRecorded(recorded);
+    }
+  }, [patient?.diagnoses]);
 
   const fetchPatient = async () => {
     try {
@@ -107,7 +125,12 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
         
         // Try to find the drug ID from userDrugInventory by matching drug name
         const matchingInventoryDrug = userDrugInventory.find(invDrug => 
+          // Exact match
           invDrug.drug_name === drug.drug_name ||
+          // Match ignoring package size (e.g., "N12", "N20", etc.)
+          invDrug.drug_name.replace(/\s+N\d+.*$/i, '') === drug.drug_name ||
+          drug.drug_name.replace(/\s+N\d+.*$/i, '') === invDrug.drug_name.replace(/\s+N\d+.*$/i, '') ||
+          // ID matches
           (drug.id && invDrug.id === drug.id) ||
           (drug.drug_id && invDrug.id === drug.drug_id)
         );
@@ -138,6 +161,14 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
           setError('Failed to record dispensing: ' + error);
         } else {
           console.log('Successfully recorded drug dispensing for', dispensings.length, 'drugs');
+          setDispensingRecorded(prev => ({ ...prev, [diagnosis.id]: true }));
+          
+          // Store in localStorage for persistence across pages
+          const recordedDispensings = JSON.parse(localStorage.getItem('recordedDispensings') || '[]');
+          if (!recordedDispensings.includes(diagnosis.id)) {
+            recordedDispensings.push(diagnosis.id);
+            localStorage.setItem('recordedDispensings', JSON.stringify(recordedDispensings));
+          }
         }
       } else {
         console.warn('No dispensings recorded - could not match any inventory drugs');
@@ -359,9 +390,12 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
                             Complaint: {diagnosis.complaint}
                           </p>
                         </div>
-                        <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getSeverityColor(diagnosis.severity_level || 'unknown')}`}>
-                          {getSeverityText(diagnosis.severity_level || 'unknown')}
-                        </span>
+                        <div className="flex items-center gap-3">
+                          <DiagnosisExportDropdown diagnosis={diagnosis} />
+                          <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getSeverityColor(diagnosis.severity_level || 'unknown')}`}>
+                            {getSeverityText(diagnosis.severity_level || 'unknown')}
+                          </span>
+                        </div>
                       </div>
 
                       {diagnosis.symptoms && (
@@ -470,7 +504,7 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
                         <div className="mt-4 pt-4 border-t border-slate-200">
                           <button
                             onClick={() => recordDrugDispensing(diagnosis)}
-                            disabled={recordingDispensing[diagnosis.id]}
+                            disabled={recordingDispensing[diagnosis.id] || dispensingRecorded[diagnosis.id]}
                             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {recordingDispensing[diagnosis.id] ? (
@@ -480,6 +514,13 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
                                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
                                 Recording Dispensing...
+                              </>
+                            ) : dispensingRecorded[diagnosis.id] ? (
+                              <>
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                Dispensing Recorded
                               </>
                             ) : (
                               <>

@@ -345,7 +345,14 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       setRecordingDispensing(true);
       await recordDrugDispensing(diagnosisResult);
       setDispensingRecorded(true);
-      setTimeout(() => setDispensingRecorded(false), 3000); // Reset after 3 seconds
+      
+      // Store in localStorage for persistence across pages
+      const recordedDispensings = JSON.parse(localStorage.getItem('recordedDispensings') || '[]');
+      if (!recordedDispensings.includes(diagnosisResult.id)) {
+        recordedDispensings.push(diagnosisResult.id);
+        localStorage.setItem('recordedDispensings', JSON.stringify(recordedDispensings));
+      }
+      
     } catch (err) {
       console.error('Manual dispensing record failed:', err);
     } finally {
@@ -499,6 +506,14 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
     checkCredits();
   }, [user]);
+
+  // Check if dispensing was already recorded for this diagnosis
+  useEffect(() => {
+    if (diagnosisResult?.id) {
+      const recordedDispensings = JSON.parse(localStorage.getItem('recordedDispensings') || '[]');
+      setDispensingRecorded(recordedDispensings.includes(diagnosisResult.id));
+    }
+  }, [diagnosisResult?.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -692,7 +707,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                   </button>
                   <button
                     onClick={manuallyRecordDispensing}
-                    disabled={recordingDispensing || !diagnosisResult?.inventory_drugs?.length}
+                    disabled={recordingDispensing || dispensingRecorded || !diagnosisResult?.inventory_drugs?.length}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {recordingDispensing ? (
