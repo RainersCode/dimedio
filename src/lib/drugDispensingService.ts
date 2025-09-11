@@ -69,7 +69,8 @@ export class DrugDispensingService {
   // Record multiple drug dispensings for a diagnosis
   static async recordMultipleDispensings(
     dispensings: Array<{
-      drugId: string;
+      drugId: string | null;
+      drugName?: string;
       quantity: number;
       notes?: string;
     }>,
@@ -87,19 +88,68 @@ export class DrugDispensingService {
       return { data: null, error: 'User not authenticated' };
     }
 
-    const dispensingRecords = dispensings.map(dispensing => ({
-      user_id: user.id,
-      drug_id: dispensing.drugId,
-      diagnosis_id: diagnosisId,
-      quantity_dispensed: dispensing.quantity,
-      patient_info: patientInfo,
-      notes: dispensing.notes || null,
-      dispensed_date: new Date().toISOString(),
-    }));
+    // First, create placeholder drugs for any that don't have drugId
+    const processedDispensings = [];
+    
+    for (const dispensing of dispensings) {
+      let drugId = dispensing.drugId;
+      
+      // If no drug ID, create a placeholder drug entry in inventory
+      if (!drugId && dispensing.drugName) {
+        console.log('Creating placeholder drug entry for:', dispensing.drugName);
+        try {
+          const { data: placeholderDrug, error: placeholderError } = await supabase
+            .from('user_drug_inventory')
+            .insert({
+              user_id: user.id,
+              drug_name: dispensing.drugName,
+              generic_name: dispensing.drugName,
+              dosage_form: 'Unknown',
+              strength: 'Unknown',
+              stock_quantity: 0,
+              unit_price: 0,
+              is_active: true,
+              notes: 'Auto-created from diagnosis - not in original inventory'
+            })
+            .select()
+            .single();
+            
+          if (!placeholderError && placeholderDrug) {
+            drugId = placeholderDrug.id;
+            console.log('Created placeholder drug with ID:', drugId);
+          } else {
+            console.error('Failed to create placeholder drug:', placeholderError);
+            continue; // Skip this drug if we can't create placeholder
+          }
+        } catch (err) {
+          console.error('Error creating placeholder drug:', err);
+          continue;
+        }
+      }
+      
+      if (drugId) {
+        processedDispensings.push({
+          user_id: user.id,
+          drug_id: drugId,
+          diagnosis_id: diagnosisId,
+          quantity_dispensed: dispensing.quantity,
+          patient_info: {
+            ...patientInfo,
+            drug_name: dispensing.drugName // Store drug name in patient_info for display
+          },
+          notes: dispensing.notes || null,
+          dispensed_date: new Date().toISOString(),
+        });
+      }
+    }
+
+    if (processedDispensings.length === 0) {
+      return { data: null, error: 'No valid drugs to record' };
+    }
 
     const { data, error } = await supabase
       .from('drug_usage_history')
-      .insert(dispensingRecords)
+      .insert(processedDispensings)
       .select();
 
     if (error) {
@@ -181,7 +231,7 @@ export class DrugDispensingService {
       // Process fallback data without joins
       const processedFallbackData = fallbackData?.map(record => ({
         ...record,
-        drug_name: 'Unknown Drug',
+        drug_name: record.patient_info?.drug_name || 'Unknown Drug',
         dosage_form: null,
         strength: null,
         unit_price: null,
@@ -195,7 +245,7 @@ export class DrugDispensingService {
     // Process the data to flatten the structure
     const processedData = data?.map(record => ({
       ...record,
-      drug_name: record.user_drug_inventory?.drug_name,
+      drug_name: record.user_drug_inventory?.drug_name || record.patient_info?.drug_name || 'Unknown Drug',
       dosage_form: record.user_drug_inventory?.dosage_form,
       strength: record.user_drug_inventory?.strength,
       unit_price: record.user_drug_inventory?.unit_price,

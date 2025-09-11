@@ -33,10 +33,14 @@ export default function DrugDispensing() {
       setError('');
 
       // Fetch dispensing history
+      console.log('🔍 Fetching dispensing history...');
       const { data: history, error: historyError } = await DrugDispensingService.getDispensingHistory(100);
       if (historyError) {
+        console.error('❌ Error fetching dispensing history:', historyError);
         throw new Error(historyError);
       }
+      console.log('✅ Dispensing history fetched:', history?.length, 'records');
+      console.log('📋 First few records:', history?.slice(0, 3));
       setDispensingHistory(history || []);
 
       // Fetch statistics

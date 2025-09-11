@@ -129,26 +129,54 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
         console.log('Processing drug:', drug);
         
         // Try to find the drug ID from userDrugInventory by matching drug name
-        const matchingInventoryDrug = userDrugInventory.find(invDrug => 
-          // Exact match
-          invDrug.drug_name === drug.drug_name ||
-          // Match ignoring package size (e.g., "N12", "N20", etc.)
-          invDrug.drug_name.replace(/\s+N\d+.*$/i, '') === drug.drug_name ||
-          drug.drug_name.replace(/\s+N\d+.*$/i, '') === invDrug.drug_name.replace(/\s+N\d+.*$/i, '') ||
-          // ID matches
-          (drug.id && invDrug.id === drug.id) ||
-          (drug.drug_id && invDrug.id === drug.drug_id)
-        );
+        const matchingInventoryDrug = userDrugInventory.find(invDrug => {
+          // Normalize names for comparison (lowercase, remove extra spaces)
+          const normalizeName = (name: string) => name?.toLowerCase().replace(/\s+/g, ' ').trim() || '';
+          const normalizeForMatching = (name: string) => {
+            return normalizeName(name)
+              .replace(/\s+n\d+.*$/i, '') // Remove package size (N12, N14, etc.)
+              .replace(/\s+(tabletes?|kapsulas?|ml|mg|g)\b/gi, '') // Remove common units
+              .replace(/\s+mutē\s+disperģējamās/gi, '') // Remove specific Latvian terms
+              .replace(/\s+apvalkotās/gi, '')
+              .replace(/\bmg\/\d+\s*mg\b/gi, 'mg') // Normalize dosage like "500 mg/125 mg" to "500mg"
+              .replace(/\s+/g, ' ').trim();
+          };
+          
+          const invDrugNormalized = normalizeForMatching(invDrug.drug_name);
+          const diagnosisDrugNormalized = normalizeForMatching(drug.drug_name);
+          
+          return (
+            // Exact match
+            normalizeName(invDrug.drug_name) === normalizeName(drug.drug_name) ||
+            // Normalized match
+            invDrugNormalized === diagnosisDrugNormalized ||
+            // Check if one contains the other (partial match)
+            (invDrugNormalized.includes(diagnosisDrugNormalized) && diagnosisDrugNormalized.length > 5) ||
+            (diagnosisDrugNormalized.includes(invDrugNormalized) && invDrugNormalized.length > 5) ||
+            // ID matches
+            (drug.id && invDrug.id === drug.id) ||
+            (drug.drug_id && invDrug.id === drug.drug_id)
+          );
+        });
         
         if (matchingInventoryDrug) {
           console.log('Found matching inventory drug:', matchingInventoryDrug);
           dispensings.push({
             drugId: matchingInventoryDrug.id,
+            drugName: drug.drug_name, // Store the original drug name from diagnosis
             quantity: extractQuantityFromDosage(drug.dosage) || 1,
             notes: `Prescribed for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}`
           });
         } else {
           console.warn('Could not find matching inventory drug for:', drug.drug_name);
+          console.log('Recording drug without inventory match...');
+          // Still record the drug even if not found in inventory
+          dispensings.push({
+            drugId: null, // No inventory drug ID
+            drugName: drug.drug_name, // Store the drug name from diagnosis
+            quantity: extractQuantityFromDosage(drug.dosage) || 1,
+            notes: `Prescribed for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}. Note: Drug not found in current inventory.`
+          });
         }
       }
 
