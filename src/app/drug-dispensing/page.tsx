@@ -2,6 +2,8 @@
 
 import Navigation from '@/components/layout/Navigation';
 import { DrugDispensingService, DrugDispensingRecord, DispensingStats } from '@/lib/drugDispensingService';
+import { PatientService } from '@/lib/patientService';
+import { DatabaseService } from '@/lib/database';
 import { useState, useEffect } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 
@@ -11,6 +13,7 @@ export default function DrugDispensing() {
   const [stats, setStats] = useState<DispensingStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deletedItems, setDeletedItems] = useState<{[recordId: string]: {patientDeleted: boolean, diagnosisDeleted: boolean}}>({});
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -43,10 +46,62 @@ export default function DrugDispensing() {
       }
       setStats(statsData);
 
+      // Check for deleted patients and diagnoses
+      if (history && history.length > 0) {
+        checkForDeletedItems(history);
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkForDeletedItems = async (records: DrugDispensingRecord[]) => {
+    try {
+      const deletedCheck: {[recordId: string]: {patientDeleted: boolean, diagnosisDeleted: boolean}} = {};
+      
+      // Get all existing patients once
+      let existingPatients: any[] = [];
+      try {
+        const { data: patients } = await PatientService.getPatients(1000);
+        existingPatients = patients || [];
+      } catch (err) {
+        console.warn('Error fetching patients for deletion check:', err);
+      }
+
+      for (const record of records) {
+        deletedCheck[record.id] = {
+          patientDeleted: false,
+          diagnosisDeleted: false
+        };
+
+        // Check if patient still exists (for records with patient names)
+        if (record.patient_name && record.patient_name !== 'Unknown Patient' && record.patient_name !== 'Anonymous Patient') {
+          const patientExists = existingPatients.some(p => p.patient_name === record.patient_name);
+          if (!patientExists) {
+            deletedCheck[record.id].patientDeleted = true;
+          }
+        }
+
+        // Check if diagnosis still exists (for records with diagnosis_id)
+        if (record.diagnosis_id) {
+          try {
+            const { data, error } = await DatabaseService.getDiagnosis(record.diagnosis_id);
+            if (error || !data) {
+              deletedCheck[record.id].diagnosisDeleted = true;
+            }
+          } catch (err) {
+            // If we can't fetch it, assume it's deleted
+            deletedCheck[record.id].diagnosisDeleted = true;
+          }
+        }
+      }
+
+      setDeletedItems(deletedCheck);
+    } catch (err) {
+      console.warn('Error checking for deleted items:', err);
     }
   };
 
@@ -330,7 +385,16 @@ export default function DrugDispensing() {
                     <div key={index} className="flex items-start justify-between">
                       <div>
                         <h4 className="font-medium text-slate-900">{activity.drug_name}</h4>
-                        <p className="text-sm text-slate-600">{activity.patient_name || 'Unknown Patient'}</p>
+                        <div className="flex items-center gap-2">
+                          <p className={`text-sm ${deletedItems[activity.id]?.patientDeleted ? 'text-red-500 line-through' : 'text-slate-600'}`}>
+                            {activity.patient_name || 'Unknown Patient'}
+                          </p>
+                          {deletedItems[activity.id]?.patientDeleted && (
+                            <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">
+                              Deleted
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-slate-500">
                           {new Date(activity.dispensed_date).toLocaleDateString()}
                         </p>
@@ -447,10 +511,28 @@ export default function DrugDispensing() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">
-                        {record.patient_name || 'Unknown Patient'}
+                        <div className="flex items-center gap-2">
+                          <span className={deletedItems[record.id]?.patientDeleted ? 'line-through text-red-500' : ''}>
+                            {record.patient_name || 'Unknown Patient'}
+                          </span>
+                          {deletedItems[record.id]?.patientDeleted && (
+                            <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">
+                              Patient Deleted
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">
-                        {record.primary_diagnosis || 'No diagnosis'}
+                        <div className="flex items-center gap-2">
+                          <span className={deletedItems[record.id]?.diagnosisDeleted ? 'line-through text-red-500' : ''}>
+                            {record.primary_diagnosis || 'No diagnosis'}
+                          </span>
+                          {deletedItems[record.id]?.diagnosisDeleted && (
+                            <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">
+                              Diagnosis Deleted
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-900">
                         <span className="font-medium">{record.quantity_dispensed}</span> units

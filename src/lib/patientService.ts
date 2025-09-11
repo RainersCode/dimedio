@@ -84,39 +84,38 @@ export class PatientService {
       return { data: null, error: 'User not authenticated' };
     }
 
-    // First, get all patients
+    // First, get all patients with profiles
     const { data: patients, error: patientsError } = await supabase
       .from('patient_profiles')
       .select('*')
       .eq('user_id', user.id)
-      .order('last_visit_date', { ascending: false, nullsFirst: false })
-      .range(offset, offset + limit - 1);
+      .order('last_visit_date', { ascending: false, nullsFirst: false });
 
     if (patientsError) {
       console.error('Error fetching patients:', patientsError);
       return { data: null, error: patientsError.message };
     }
 
-    if (!patients || patients.length === 0) {
-      return { data: [], error: null };
-    }
-
-    // Get all diagnoses for these patients
-    const { data: diagnoses, error: diagnosesError } = await supabase
+    // Get all diagnoses
+    const { data: allDiagnoses, error: diagnosesError } = await supabase
       .from('diagnoses')
-      .select('id, patient_name, primary_diagnosis, created_at, severity_level')
+      .select('id, patient_name, primary_diagnosis, created_at, severity_level, patient_age, patient_gender')
       .eq('user_id', user.id)
-      .in('patient_name', patients.map(p => p.patient_name))
       .order('created_at', { ascending: false });
 
     if (diagnosesError) {
       console.warn('Error fetching diagnoses:', diagnosesError);
-      // Continue without diagnosis data rather than failing completely
+      return { data: patients?.map(p => ({ ...p, diagnosis_count: 0, last_diagnosis: 'No diagnosis', last_diagnosis_severity: 'unknown' })) || [], error: null };
     }
 
-    // Process the data to add diagnosis counts and last diagnosis
-    const processedData = patients.map(patient => {
-      const patientDiagnoses = diagnoses?.filter(d => d.patient_name === patient.patient_name) || [];
+    // Separate diagnoses into those with profiles and anonymous ones
+    const existingPatientNames = patients?.map(p => p.patient_name) || [];
+    const profileDiagnoses = allDiagnoses?.filter(d => d.patient_name && existingPatientNames.includes(d.patient_name)) || [];
+    const anonymousDiagnoses = allDiagnoses?.filter(d => !d.patient_name || !existingPatientNames.includes(d.patient_name)) || [];
+
+    // Process existing patients
+    const processedPatients = (patients || []).map(patient => {
+      const patientDiagnoses = profileDiagnoses.filter(d => d.patient_name === patient.patient_name);
       const sortedDiagnoses = patientDiagnoses.sort((a, b) => 
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
@@ -129,7 +128,40 @@ export class PatientService {
       };
     });
 
-    return { data: processedData, error: null };
+    // Create anonymous patient entries grouped by diagnosis ID
+    const anonymousPatients = anonymousDiagnoses.map((diagnosis, index) => {
+      return {
+        id: `anonymous-${diagnosis.id}`,
+        user_id: user.id,
+        patient_name: 'Anonymous Patient',
+        patient_age: diagnosis.patient_age || null,
+        patient_gender: diagnosis.patient_gender || null,
+        patient_id: null,
+        date_of_birth: null,
+        allergies: [],
+        current_medications: [],
+        medical_history: [],
+        contact_info: {},
+        insurance_info: {},
+        emergency_contacts: [],
+        last_visit_date: diagnosis.created_at,
+        created_at: diagnosis.created_at,
+        updated_at: diagnosis.created_at,
+        diagnosis_count: 1,
+        last_diagnosis: diagnosis.primary_diagnosis || 'No diagnosis',
+        last_diagnosis_severity: diagnosis.severity_level || 'unknown'
+      };
+    });
+
+    // Combine and sort all patients by last visit date
+    const allPatients = [...processedPatients, ...anonymousPatients].sort((a, b) => 
+      new Date(b.last_visit_date || b.created_at).getTime() - new Date(a.last_visit_date || a.created_at).getTime()
+    );
+
+    // Apply pagination
+    const paginatedData = allPatients.slice(offset, offset + limit);
+
+    return { data: paginatedData, error: null };
   }
 
   // Get a single patient with their full diagnosis history
@@ -140,7 +172,48 @@ export class PatientService {
       return { data: null, error: 'User not authenticated' };
     }
 
-    // Get the patient profile
+    // Check if this is an anonymous patient
+    if (patientId.startsWith('anonymous-')) {
+      const diagnosisId = patientId.replace('anonymous-', '');
+      
+      // Get the specific diagnosis for this anonymous patient
+      const { data: diagnosis, error: diagnosisError } = await supabase
+        .from('diagnoses')
+        .select('*')
+        .eq('id', diagnosisId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (diagnosisError) {
+        console.error('Error fetching anonymous patient diagnosis:', diagnosisError);
+        return { data: null, error: diagnosisError.message };
+      }
+
+      // Create anonymous patient profile
+      const anonymousPatient = {
+        id: patientId,
+        user_id: user.id,
+        patient_name: 'Anonymous Patient',
+        patient_age: diagnosis.patient_age || null,
+        patient_gender: diagnosis.patient_gender || null,
+        patient_id: null,
+        date_of_birth: null,
+        allergies: [],
+        current_medications: [],
+        medical_history: [],
+        contact_info: {},
+        insurance_info: {},
+        emergency_contacts: [],
+        last_visit_date: diagnosis.created_at,
+        created_at: diagnosis.created_at,
+        updated_at: diagnosis.created_at,
+        diagnoses: [diagnosis]
+      };
+
+      return { data: anonymousPatient, error: null };
+    }
+
+    // Handle regular patients with profiles
     const { data: patient, error: patientError } = await supabase
       .from('patient_profiles')
       .select('*')
@@ -191,18 +264,69 @@ export class PatientService {
       return { error: 'User not authenticated' };
     }
 
-    const { error } = await supabase
-      .from('patient_profiles')
-      .delete()
-      .eq('id', patientId)
-      .eq('user_id', user.id);
+    // Check if this is an anonymous patient (format: anonymous-{diagnosisId})
+    if (patientId.startsWith('anonymous-')) {
+      const diagnosisId = patientId.replace('anonymous-', '');
+      
+      // Delete only the specific diagnosis for anonymous patients
+      const { error: diagnosisError } = await supabase
+        .from('diagnoses')
+        .delete()
+        .eq('id', diagnosisId)
+        .eq('user_id', user.id);
 
-    if (error) {
-      console.error('Error deleting patient:', error);
-      return { error: error.message };
+      if (diagnosisError) {
+        console.error('Error deleting anonymous patient diagnosis:', diagnosisError);
+        return { error: diagnosisError.message };
+      }
+
+      return { error: null };
     }
 
-    return { error: null };
+    // For regular patients with profiles, delete both profile and all their diagnoses
+    try {
+      // First, get the patient to find their name
+      const { data: patient, error: fetchError } = await supabase
+        .from('patient_profiles')
+        .select('patient_name')
+        .eq('id', patientId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching patient for deletion:', fetchError);
+        return { error: fetchError.message };
+      }
+
+      // Delete all diagnoses for this patient
+      const { error: diagnosesError } = await supabase
+        .from('diagnoses')
+        .delete()
+        .eq('patient_name', patient.patient_name)
+        .eq('user_id', user.id);
+
+      if (diagnosesError) {
+        console.error('Error deleting patient diagnoses:', diagnosesError);
+        return { error: diagnosesError.message };
+      }
+
+      // Delete the patient profile
+      const { error: profileError } = await supabase
+        .from('patient_profiles')
+        .delete()
+        .eq('id', patientId)
+        .eq('user_id', user.id);
+
+      if (profileError) {
+        console.error('Error deleting patient profile:', profileError);
+        return { error: profileError.message };
+      }
+
+      return { error: null };
+    } catch (err) {
+      console.error('Unexpected error during patient deletion:', err);
+      return { error: 'Failed to delete patient completely' };
+    }
   }
 
   // Update patient profile

@@ -4,6 +4,7 @@ import Navigation from '@/components/layout/Navigation';
 import { PatientService } from '@/lib/patientService';
 import { DrugDispensingService } from '@/lib/drugDispensingService';
 import { DrugInventoryService } from '@/lib/drugInventory';
+import { DatabaseService } from '@/lib/database';
 import { PatientProfile, Diagnosis, UserDrugInventory } from '@/types/database';
 import { useState, useEffect } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
@@ -24,6 +25,10 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
   const [userDrugInventory, setUserDrugInventory] = useState<UserDrugInventory[]>([]);
   const [recordingDispensing, setRecordingDispensing] = useState<{[key: string]: boolean}>({});
   const [dispensingRecorded, setDispensingRecorded] = useState<{[key: string]: boolean}>({});
+  const [deletingDiagnosis, setDeletingDiagnosis] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
+  const [deletingAllDiagnoses, setDeletingAllDiagnoses] = useState(false);
 
   useEffect(() => {
     if (user && params.id) {
@@ -195,6 +200,73 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
     return 1;
   };
 
+  const handleDeleteDiagnosis = async (diagnosisId: string) => {
+    try {
+      setDeletingDiagnosis(diagnosisId);
+      const { error: deleteError } = await DatabaseService.deleteDiagnosis(diagnosisId);
+      
+      if (deleteError) {
+        setError('Failed to delete diagnosis: ' + deleteError);
+      } else {
+        // Remove the diagnosis from local state
+        setPatient(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            diagnoses: prev.diagnoses.filter(d => d.id !== diagnosisId)
+          };
+        });
+        setShowDeleteConfirm(null);
+        
+        // Remove from localStorage if it was recorded
+        const recordedDispensings = JSON.parse(localStorage.getItem('recordedDispensings') || '[]');
+        const updatedRecorded = recordedDispensings.filter((id: string) => id !== diagnosisId);
+        localStorage.setItem('recordedDispensings', JSON.stringify(updatedRecorded));
+      }
+    } catch (err) {
+      setError('Failed to delete diagnosis');
+    } finally {
+      setDeletingDiagnosis(null);
+    }
+  };
+
+  const handleDeleteAllDiagnoses = async () => {
+    if (!patient?.diagnoses?.length) return;
+    
+    try {
+      setDeletingAllDiagnoses(true);
+      
+      // Delete all diagnoses
+      const deletePromises = patient.diagnoses.map(diagnosis => 
+        DatabaseService.deleteDiagnosis(diagnosis.id)
+      );
+      
+      const results = await Promise.all(deletePromises);
+      const errors = results.filter(result => result.error);
+      
+      if (errors.length > 0) {
+        setError(`Failed to delete ${errors.length} diagnosis(es)`);
+      } else {
+        // Clear all diagnoses from local state
+        setPatient(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            diagnoses: []
+          };
+        });
+        setShowDeleteAllConfirm(false);
+        
+        // Clear all from localStorage
+        localStorage.setItem('recordedDispensings', JSON.stringify([]));
+      }
+    } catch (err) {
+      setError('Failed to delete all diagnoses');
+    } finally {
+      setDeletingAllDiagnoses(false);
+    }
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -284,9 +356,18 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
               </svg>
             </Link>
             <div>
-              <h1 className="text-3xl font-bold text-slate-900">{patient.patient_name}</h1>
+              <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
+                <span className={patient.id.startsWith('anonymous-') ? 'text-amber-700 italic' : ''}>
+                  {patient.patient_name}
+                </span>
+                {patient.id.startsWith('anonymous-') && (
+                  <span className="px-3 py-1 text-sm bg-amber-100 text-amber-800 rounded-full">
+                    Anonymous Patient
+                  </span>
+                )}
+              </h1>
               <p className="text-slate-600 mt-1">
-                Patient ID: #{patient.patient_id || patient.id.slice(0, 8)} • 
+                Patient ID: #{patient.patient_id || (patient.id.startsWith('anonymous-') ? 'ANON-' + patient.id.slice(10, 18) : patient.id.slice(0, 8))} • 
                 {patient.diagnoses?.length || 0} diagnosis{patient.diagnoses?.length !== 1 ? 'es' : ''}
               </p>
             </div>
@@ -303,7 +384,16 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
               <div className="p-6 space-y-4">
                 <div>
                   <label className="text-sm font-medium text-slate-600">Name</label>
-                  <p className="text-slate-900 font-medium">{patient.patient_name}</p>
+                  <p className="text-slate-900 font-medium flex items-center gap-2">
+                    <span className={patient.id.startsWith('anonymous-') ? 'text-amber-700 italic' : ''}>
+                      {patient.patient_name}
+                    </span>
+                    {patient.id.startsWith('anonymous-') && (
+                      <span className="px-2 py-1 text-xs bg-amber-100 text-amber-800 rounded">
+                        Anonymous
+                      </span>
+                    )}
+                  </p>
                 </div>
                 
                 {patient.patient_age && (
@@ -373,8 +463,16 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
           {/* Diagnosis History */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-200">
+              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-slate-900">Diagnosis History</h2>
+                {patient?.diagnoses && patient.diagnoses.length > 0 && (
+                  <button
+                    onClick={() => setShowDeleteAllConfirm(true)}
+                    className="px-3 py-1 text-sm text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+                  >
+                    Delete All
+                  </button>
+                )}
               </div>
               <div className="divide-y divide-slate-200">
                 {patient.diagnoses && patient.diagnoses.length > 0 ? (
@@ -391,6 +489,12 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
                           </p>
                         </div>
                         <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => setShowDeleteConfirm(diagnosis.id)}
+                            className="text-red-600 hover:text-red-800 text-sm font-medium"
+                          >
+                            Delete
+                          </button>
                           <DiagnosisExportDropdown diagnosis={diagnosis} />
                           <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getSeverityColor(diagnosis.severity_level || 'unknown')}`}>
                             {getSeverityText(diagnosis.severity_level || 'unknown')}
@@ -549,6 +653,102 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
           </div>
         </div>
       </div>
+
+      {/* Delete Individual Diagnosis Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-30 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+            <div className="flex items-center mb-4">
+              <div className="flex-shrink-0">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-lg font-medium text-slate-900">Delete Diagnosis</h3>
+              </div>
+            </div>
+            
+            <p className="text-sm text-slate-600 mb-6">
+              Are you sure you want to delete this diagnosis? This action cannot be undone and will permanently remove this diagnosis record.
+            </p>
+            
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(null)}
+                className="px-4 py-2 text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteDiagnosis(showDeleteConfirm)}
+                disabled={deletingDiagnosis === showDeleteConfirm}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
+              >
+                {deletingDiagnosis === showDeleteConfirm ? (
+                  <>
+                    <svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Diagnosis'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete All Diagnoses Confirmation Modal */}
+      {showDeleteAllConfirm && (
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-30 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+            <div className="flex items-center mb-4">
+              <div className="flex-shrink-0">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-lg font-medium text-slate-900">Delete All Diagnoses</h3>
+              </div>
+            </div>
+            
+            <p className="text-sm text-slate-600 mb-6">
+              Are you sure you want to delete ALL diagnoses for this patient? This action cannot be undone and will permanently remove all {patient?.diagnoses?.length || 0} diagnosis records.
+            </p>
+            
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteAllConfirm(false)}
+                className="px-4 py-2 text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAllDiagnoses}
+                disabled={deletingAllDiagnoses}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
+              >
+                {deletingAllDiagnoses ? (
+                  <>
+                    <svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete All Diagnoses'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

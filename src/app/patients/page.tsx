@@ -81,7 +81,8 @@ export default function Patients() {
   };
 
   const filteredPatients = patients.filter(patient => {
-    const matchesSearch = patient.patient_name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = patient.patient_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (patient.id.startsWith('anonymous-') && 'anonymous'.includes(searchTerm.toLowerCase()));
     const matchesStatus = statusFilter === 'all' || 
       (statusFilter === 'active' && ['critical', 'high', 'moderate'].includes(patient.last_diagnosis_severity)) ||
       (statusFilter === 'completed' && patient.last_diagnosis_severity === 'low') ||
@@ -181,10 +182,17 @@ export default function Patients() {
                   filteredPatients.map((patient) => (
                     <tr key={patient.id} className="hover:bg-slate-50">
                       <td className="px-6 py-4 text-sm text-slate-900">
-                        #{patient.patient_id || patient.id.slice(0, 8)}
+                        #{patient.patient_id || (patient.id.startsWith('anonymous-') ? 'ANON-' + patient.id.slice(0, 8) : patient.id.slice(0, 8))}
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-slate-900">
-                        {patient.patient_name}
+                        <span className={patient.id.startsWith('anonymous-') ? 'text-amber-700 italic' : ''}>
+                          {patient.patient_name}
+                        </span>
+                        {patient.id.startsWith('anonymous-') && (
+                          <span className="ml-2 px-2 py-1 text-xs bg-amber-100 text-amber-800 rounded-full">
+                            Anonymous
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">
                         {patient.patient_age || 'N/A'}
