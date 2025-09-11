@@ -1,6 +1,85 @@
+'use client';
+
 import Navigation from '@/components/layout/Navigation';
+import { PatientService } from '@/lib/patientService';
+import { PatientProfile } from '@/types/database';
+import { useState, useEffect } from 'react';
+import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
+import Link from 'next/link';
 
 export default function Patients() {
+  const { user } = useSupabaseAuth();
+  const [patients, setPatients] = useState<(PatientProfile & { diagnosis_count: number; last_diagnosis: string; last_diagnosis_severity: string })[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  useEffect(() => {
+    if (user) {
+      fetchPatients();
+    }
+  }, [user]);
+
+  const fetchPatients = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const { data, error: fetchError } = await PatientService.getPatients();
+      
+      if (fetchError) {
+        setError(fetchError);
+      } else if (data) {
+        setPatients(data);
+      }
+    } catch (err) {
+      setError('Failed to fetch patients');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'critical': return 'bg-red-100 text-red-800';
+      case 'high': return 'bg-orange-100 text-orange-800';
+      case 'moderate': return 'bg-blue-100 text-blue-800';
+      case 'low': return 'bg-green-100 text-green-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getSeverityText = (severity: string) => {
+    switch (severity) {
+      case 'critical': return 'Critical';
+      case 'high': return 'High';
+      case 'moderate': return 'Treatment';
+      case 'low': return 'Resolved';
+      default: return 'Unknown';
+    }
+  };
+
+  const filteredPatients = patients.filter(patient => {
+    const matchesSearch = patient.patient_name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || 
+      (statusFilter === 'active' && ['critical', 'high', 'moderate'].includes(patient.last_diagnosis_severity)) ||
+      (statusFilter === 'completed' && patient.last_diagnosis_severity === 'low') ||
+      (statusFilter === 'follow-up' && patient.last_diagnosis_severity === 'moderate');
+    
+    return matchesSearch && matchesStatus;
+  });
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <Navigation />
+        <div className="flex items-center justify-center h-64">
+          <p className="text-slate-600">Please log in to view patients.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <Navigation />
@@ -22,13 +101,19 @@ export default function Patients() {
               <input 
                 type="text" 
                 placeholder="Search patients..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
                 className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
               />
-              <select className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
-                <option>All Patients</option>
-                <option>Active Cases</option>
-                <option>Completed Cases</option>
-                <option>Follow-up Required</option>
+              <select 
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              >
+                <option value="all">All Patients</option>
+                <option value="active">Active Cases</option>
+                <option value="completed">Completed Cases</option>
+                <option value="follow-up">Follow-up Required</option>
               </select>
             </div>
           </div>
@@ -47,91 +132,86 @@ export default function Patients() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                <tr className="hover:bg-slate-50">
-                  <td className="px-6 py-4 text-sm text-slate-900">#P001234</td>
-                  <td className="px-6 py-4 text-sm font-medium text-slate-900">John Smith</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">45</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">Acute Myocardial Infarction</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">Dec 8, 2024</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
-                      Critical
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <button className="text-emerald-600 hover:text-emerald-800 font-medium">
-                      View Details
-                    </button>
-                  </td>
-                </tr>
-                
-                <tr className="hover:bg-slate-50">
-                  <td className="px-6 py-4 text-sm text-slate-900">#P001235</td>
-                  <td className="px-6 py-4 text-sm font-medium text-slate-900">Sarah Johnson</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">32</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">Tension Headache</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">Dec 8, 2024</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
-                      Follow-up
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <button className="text-emerald-600 hover:text-emerald-800 font-medium">
-                      View Details
-                    </button>
-                  </td>
-                </tr>
-                
-                <tr className="hover:bg-slate-50">
-                  <td className="px-6 py-4 text-sm text-slate-900">#P001236</td>
-                  <td className="px-6 py-4 text-sm font-medium text-slate-900">Michael Brown</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">28</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">Upper Respiratory Infection</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">Dec 7, 2024</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
-                      Resolved
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <button className="text-emerald-600 hover:text-emerald-800 font-medium">
-                      View Details
-                    </button>
-                  </td>
-                </tr>
-                
-                <tr className="hover:bg-slate-50">
-                  <td className="px-6 py-4 text-sm text-slate-900">#P001237</td>
-                  <td className="px-6 py-4 text-sm font-medium text-slate-900">Emily Davis</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">41</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">Gastroesophageal Reflux</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">Dec 7, 2024</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
-                      Treatment
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <button className="text-emerald-600 hover:text-emerald-800 font-medium">
-                      View Details
-                    </button>
-                  </td>
-                </tr>
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                      <div className="flex items-center justify-center">
+                        <svg className="w-5 h-5 mr-2 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Loading patients...
+                      </div>
+                    </td>
+                  </tr>
+                ) : error ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-8 text-center text-red-500">
+                      Error: {error}
+                    </td>
+                  </tr>
+                ) : filteredPatients.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                      {searchTerm || statusFilter !== 'all' ? 'No patients match your filters' : 'No patients found. Diagnose a patient to see them here.'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredPatients.map((patient) => (
+                    <tr key={patient.id} className="hover:bg-slate-50">
+                      <td className="px-6 py-4 text-sm text-slate-900">
+                        #{patient.patient_id || patient.id.slice(0, 8)}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-slate-900">
+                        {patient.patient_name}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">
+                        {patient.patient_age || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">
+                        {patient.last_diagnosis || 'No diagnosis'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">
+                        {patient.last_visit_date ? 
+                          new Date(patient.last_visit_date).toLocaleDateString() : 
+                          new Date(patient.created_at).toLocaleDateString()
+                        }
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(patient.last_diagnosis_severity)}`}>
+                          {getSeverityText(patient.last_diagnosis_severity)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <Link 
+                          href={`/patients/${patient.id}`}
+                          className="text-emerald-600 hover:text-emerald-800 font-medium"
+                        >
+                          View Details
+                        </Link>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
           
           <div className="p-6 border-t border-slate-200 bg-slate-50">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-slate-600">Showing 1-4 of 156 patients</p>
-              <div className="flex space-x-2">
-                <button className="px-3 py-1 border border-slate-300 rounded text-sm hover:bg-white transition-colors">Previous</button>
-                <button className="px-3 py-1 bg-emerald-600 text-white rounded text-sm">1</button>
-                <button className="px-3 py-1 border border-slate-300 rounded text-sm hover:bg-white transition-colors">2</button>
-                <button className="px-3 py-1 border border-slate-300 rounded text-sm hover:bg-white transition-colors">3</button>
-                <button className="px-3 py-1 border border-slate-300 rounded text-sm hover:bg-white transition-colors">Next</button>
-              </div>
+              <p className="text-sm text-slate-600">
+                Showing {filteredPatients.length} of {patients.length} patients
+                {searchTerm && ` (filtered by "${searchTerm}")`}
+                {statusFilter !== 'all' && ` (${statusFilter} cases)`}
+              </p>
+              {filteredPatients.length > 0 && (
+                <button 
+                  onClick={fetchPatients}
+                  className="px-3 py-1 border border-slate-300 rounded text-sm hover:bg-white transition-colors"
+                >
+                  Refresh
+                </button>
+              )}
             </div>
           </div>
         </div>

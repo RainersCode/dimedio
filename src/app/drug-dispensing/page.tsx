@@ -1,0 +1,524 @@
+'use client';
+
+import Navigation from '@/components/layout/Navigation';
+import { DrugDispensingService, DrugDispensingRecord, DispensingStats } from '@/lib/drugDispensingService';
+import { useState, useEffect } from 'react';
+import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
+
+export default function DrugDispensing() {
+  const { user } = useSupabaseAuth();
+  const [dispensingHistory, setDispensingHistory] = useState<DrugDispensingRecord[]>([]);
+  const [stats, setStats] = useState<DispensingStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  
+  // Filters
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  useEffect(() => {
+    if (user) {
+      fetchData();
+    }
+  }, [user, selectedPeriod]);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      // Fetch dispensing history
+      const { data: history, error: historyError } = await DrugDispensingService.getDispensingHistory(100);
+      if (historyError) {
+        throw new Error(historyError);
+      }
+      setDispensingHistory(history || []);
+
+      // Fetch statistics
+      const { data: statsData, error: statsError } = await DrugDispensingService.getDispensingSummary(selectedPeriod);
+      if (statsError) {
+        throw new Error(statsError);
+      }
+      setStats(statsData);
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFilterChange = async () => {
+    try {
+      setLoading(true);
+      const filters: any = {};
+      
+      if (dateFrom) filters.dateFrom = dateFrom;
+      if (dateTo) filters.dateTo = dateTo;
+      
+      const { data: history, error } = await DrugDispensingService.getDispensingHistory(100, 0, filters);
+      if (error) {
+        throw new Error(error);
+      }
+      
+      setDispensingHistory(history || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to apply filters');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredHistory = dispensingHistory.filter(record => {
+    const matchesSearch = !searchTerm || 
+      record.drug_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      record.patient_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      record.primary_diagnosis?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    return matchesSearch;
+  });
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <Navigation />
+        <div className="flex items-center justify-center h-64">
+          <p className="text-slate-600">Please log in to view dispensing history.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <Navigation />
+      
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">Drug Dispensing History</h1>
+            <p className="text-slate-600 mt-2">Track medications dispensed to patients and inventory usage</p>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={async () => {
+                const { results, error } = await DrugDispensingService.testDatabasePermissions();
+                if (error) {
+                  console.error('Permission test error:', error);
+                  alert('❌ Permission test failed: ' + error);
+                } else {
+                  console.log('🔍 Permission test results:', results);
+                  alert(`🔍 Database Permissions Test:\n\n` +
+                    `User ID: ${results.user_id}\n` +
+                    `Can SELECT: ${results.canSelect}\n` +
+                    `Record Count: ${results.recordCount}\n` +
+                    `Has Sample Record: ${!!results.sampleRecord}\n` +
+                    `Errors: ${results.errors.length > 0 ? results.errors.join(', ') : 'None'}`);
+                }
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Test DB Permissions
+            </button>
+            <button 
+              onClick={async () => {
+                const { data, error } = await DrugDispensingService.createTestDispensingRecord();
+                if (error) {
+                  setError(error);
+                } else {
+                  console.log('Test record created:', data);
+                  fetchData(); // Refresh the data
+                }
+              }}
+              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              Create Test Record
+            </button>
+          </div>
+        </div>
+
+        {/* Statistics Cards */}
+        {stats && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className="bg-white rounded-xl border border-slate-200 p-6">
+              <div className="flex items-center">
+                <div className="p-3 bg-blue-100 rounded-lg">
+                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.415-3.414l5-5A2 2 0 009 7.172V5L8 4z" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-slate-600">Total Dispensed</p>
+                  <p className="text-2xl font-bold text-slate-900">{stats.total_dispensed}</p>
+                  <p className="text-xs text-slate-500">units in {selectedPeriod}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-6">
+              <div className="flex items-center">
+                <div className="p-3 bg-emerald-100 rounded-lg">
+                  <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-slate-600">Unique Patients</p>
+                  <p className="text-2xl font-bold text-slate-900">{stats.unique_patients}</p>
+                  <p className="text-xs text-slate-500">treated in {selectedPeriod}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-6">
+              <div className="flex items-center">
+                <div className="p-3 bg-purple-100 rounded-lg">
+                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.415-3.414l5-5A2 2 0 009 7.172V5L8 4z" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-slate-600">Unique Drugs</p>
+                  <p className="text-2xl font-bold text-slate-900">{stats.unique_drugs}</p>
+                  <p className="text-xs text-slate-500">different medications</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-6">
+              <div className="flex items-center">
+                <div className="p-3 bg-orange-100 rounded-lg">
+                  <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-slate-600">Total Value</p>
+                  <p className="text-2xl font-bold text-slate-900">€{stats.total_value.toFixed(2)}</p>
+                  <p className="text-xs text-slate-500">dispensed value</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Filters */}
+        <div className="bg-white rounded-xl border border-slate-200 mb-8">
+          <div className="p-6 border-b border-slate-200">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">Filters & Search</h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Search</label>
+                <input 
+                  type="text"
+                  placeholder="Drug, patient, or diagnosis..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Period</label>
+                <select
+                  value={selectedPeriod}
+                  onChange={(e) => setSelectedPeriod(e.target.value as any)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                >
+                  <option value="week">Last Week</option>
+                  <option value="month">Last Month</option>
+                  <option value="quarter">Last Quarter</option>
+                  <option value="year">Last Year</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">From Date</label>
+                <input 
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">To Date</label>
+                <input 
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+            
+            <div className="mt-4 flex gap-2">
+              <button 
+                onClick={handleFilterChange}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+              >
+                Apply Filters
+              </button>
+              <button 
+                onClick={() => {
+                  setDateFrom('');
+                  setDateTo('');
+                  setSearchTerm('');
+                  fetchData();
+                }}
+                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Top Drugs */}
+        {stats && stats.top_drugs.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <div className="bg-white rounded-xl border border-slate-200">
+              <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+                <h2 className="text-lg font-semibold text-slate-900">Most Dispensed Drugs</h2>
+                <button 
+                  onClick={fetchData}
+                  className="px-3 py-1 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-50 transition-colors flex items-center gap-1"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+              <div className="p-6">
+                <div className="space-y-4">
+                  {stats.top_drugs.map((drug, index) => (
+                    <div key={index} className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-medium text-slate-900">{drug.drug_name}</h4>
+                        <p className="text-sm text-slate-600">{drug.total_dispensings} dispensing{drug.total_dispensings !== 1 ? 's' : ''}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-slate-900">{drug.total_quantity} units</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200">
+              <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+                <h2 className="text-lg font-semibold text-slate-900">Recent Activity</h2>
+                <button 
+                  onClick={fetchData}
+                  className="px-3 py-1 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-50 transition-colors flex items-center gap-1"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+              <div className="p-6">
+                <div className="space-y-4">
+                  {stats.recent_activity.slice(0, 5).map((activity, index) => (
+                    <div key={index} className="flex items-start justify-between">
+                      <div>
+                        <h4 className="font-medium text-slate-900">{activity.drug_name}</h4>
+                        <p className="text-sm text-slate-600">{activity.patient_name || 'Unknown Patient'}</p>
+                        <p className="text-xs text-slate-500">
+                          {new Date(activity.dispensed_date).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-slate-900">{activity.quantity_dispensed} units</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dispensing History Table */}
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+            <h2 className="text-lg font-semibold text-slate-900">Dispensing History</h2>
+            <button 
+              onClick={async () => {
+                const confirmed = window.confirm(
+                  '⚠️ Are you sure you want to delete ALL dispensing history records?\n\nThis action cannot be undone and will permanently remove all your dispensing records from the database.'
+                );
+                
+                if (confirmed) {
+                  try {
+                    setLoading(true);
+                    const { success, error } = await DrugDispensingService.clearAllDispensingHistory();
+                    
+                    if (success) {
+                      // Clear local state
+                      setDispensingHistory([]);
+                      setStats(null);
+                      setSearchTerm('');
+                      setDateFrom('');
+                      setDateTo('');
+                      setSelectedPeriod('month');
+                      
+                      // Refresh data to show empty state
+                      await fetchData();
+                      
+                      alert('✅ All dispensing history has been cleared successfully.');
+                    } else {
+                      setError(error || 'Failed to clear dispensing history');
+                      alert('❌ Failed to clear dispensing history: ' + (error || 'Unknown error'));
+                    }
+                  } catch (err) {
+                    const errorMsg = err instanceof Error ? err.message : 'Unknown error occurred';
+                    setError(errorMsg);
+                    alert('❌ Error clearing dispensing history: ' + errorMsg);
+                  } finally {
+                    setLoading(false);
+                  }
+                }
+              }}
+              className="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 transition-colors flex items-center gap-1"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1-1H7a1 1 0 00-1 1v3m14 0H3" />
+              </svg>
+              Delete All History
+            </button>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Date</th>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Drug</th>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Patient</th>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Diagnosis</th>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Quantity</th>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Notes</th>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                      <div className="flex items-center justify-center">
+                        <svg className="w-5 h-5 mr-2 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Loading dispensing history...
+                      </div>
+                    </td>
+                  </tr>
+                ) : error ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-8 text-center text-red-500">
+                      Error: {error}
+                    </td>
+                  </tr>
+                ) : filteredHistory.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                      {searchTerm ? 'No dispensing records match your search' : 'No dispensing records found'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredHistory.map((record) => (
+                    <tr key={record.id} className="hover:bg-slate-50">
+                      <td className="px-6 py-4 text-sm text-slate-900">
+                        {new Date(record.dispensed_date).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-slate-900">
+                        {record.drug_name || 'Unknown Drug'}
+                        {record.strength && (
+                          <p className="text-xs text-slate-500">{record.strength}</p>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">
+                        {record.patient_name || 'Unknown Patient'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">
+                        {record.primary_diagnosis || 'No diagnosis'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-900">
+                        <span className="font-medium">{record.quantity_dispensed}</span> units
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">
+                        {record.notes || '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <button
+                          onClick={async () => {
+                            const confirmed = window.confirm(
+                              `⚠️ Are you sure you want to delete this dispensing record?\n\n` +
+                              `Drug: ${record.drug_name || 'Unknown Drug'}\n` +
+                              `Patient: ${record.patient_name || 'Unknown Patient'}\n` +
+                              `Date: ${new Date(record.dispensed_date).toLocaleDateString()}\n\n` +
+                              `This action cannot be undone.`
+                            );
+                            
+                            if (confirmed) {
+                              try {
+                                const { success, error } = await DrugDispensingService.deleteDispensingRecord(record.id);
+                                
+                                if (success) {
+                                  // Remove the record from local state
+                                  setDispensingHistory(prev => prev.filter(r => r.id !== record.id));
+                                  // Refresh stats
+                                  await fetchData();
+                                } else {
+                                  setError(error || 'Failed to delete record');
+                                  alert('❌ Failed to delete record: ' + (error || 'Unknown error'));
+                                }
+                              } catch (err) {
+                                const errorMsg = err instanceof Error ? err.message : 'Unknown error occurred';
+                                setError(errorMsg);
+                                alert('❌ Error deleting record: ' + errorMsg);
+                              }
+                            }
+                          }}
+                          className="px-2 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 transition-colors"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1-1H7a1 1 0 00-1 1v3m14 0H3" />
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          
+          <div className="p-6 border-t border-slate-200 bg-slate-50">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-600">
+                Showing {filteredHistory.length} records
+                {searchTerm && ` (filtered by "${searchTerm}")`}
+              </p>
+              <button 
+                onClick={fetchData}
+                className="px-3 py-1 border border-slate-300 rounded text-sm hover:bg-white transition-colors"
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { DatabaseService, N8nService } from '@/lib/database';
+import { PatientService } from '@/lib/patientService';
+import { DrugDispensingService } from '@/lib/drugDispensingService';
 import { DiagnosisFormData, UserDrugInventory } from '@/types/database';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { CreditsService } from '@/lib/credits';
@@ -74,6 +76,10 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   const [userDrugInventory, setUserDrugInventory] = useState<UserDrugInventory[]>([]);
   const [drugSearchResults, setDrugSearchResults] = useState<UserDrugInventory[]>([]);
   const [showDrugSuggestions, setShowDrugSuggestions] = useState<{[key: string]: boolean}>({});
+  const [savingPatient, setSavingPatient] = useState(false);
+  const [patientSaved, setPatientSaved] = useState(false);
+  const [recordingDispensing, setRecordingDispensing] = useState(false);
+  const [dispensingRecorded, setDispensingRecorded] = useState(false);
   
   // Collapsible sections state
   const [expandedSections, setExpandedSections] = useState({
@@ -164,6 +170,200 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     } finally {
       setLoading(false);
     }
+  };
+
+  const savePatient = async () => {
+    if (!diagnosisResult || !diagnosisResult.patient_name) {
+      setError('Patient name is required to save patient profile');
+      return;
+    }
+
+    try {
+      setSavingPatient(true);
+      setError('');
+
+      const { data: savedPatient, error: saveError } = await PatientService.savePatientFromDiagnosis(diagnosisResult);
+
+      if (saveError) {
+        setError('Failed to save patient: ' + saveError);
+      } else if (savedPatient) {
+        setPatientSaved(true);
+        setTimeout(() => setPatientSaved(false), 3000); // Reset after 3 seconds
+      }
+    } catch (err) {
+      setError('Failed to save patient profile');
+    } finally {
+      setSavingPatient(false);
+    }
+  };
+
+  const recordDrugDispensing = async (diagnosis: any) => {
+    console.log('🩺 Starting drug dispensing process for diagnosis:', diagnosis?.id);
+    console.log('🔍 Checking diagnosis object:', { 
+      hasId: !!diagnosis?.id, 
+      hasInventoryDrugs: !!diagnosis?.inventory_drugs,
+      inventoryDrugsLength: diagnosis?.inventory_drugs?.length || 0,
+      inventoryDrugs: diagnosis?.inventory_drugs
+    });
+    
+    if (!diagnosis || !diagnosis.inventory_drugs || diagnosis.inventory_drugs.length === 0) {
+      console.log('⚠️ No inventory drugs to dispense for diagnosis:', diagnosis?.id);
+      console.log('📋 Diagnosis inventory drugs:', diagnosis?.inventory_drugs);
+      return; // No inventory drugs to dispense
+    }
+
+    try {
+      console.log('💊 Recording drug dispensing for diagnosis:', diagnosis.id);
+      console.log('📦 Inventory drugs from diagnosis:', diagnosis.inventory_drugs);
+      console.log('🏪 Current userDrugInventory state:', {
+        isLoaded: !!userDrugInventory,
+        length: userDrugInventory?.length || 0,
+        items: userDrugInventory?.map(d => d.drug_name) || []
+      });
+
+      // Always try to load fresh inventory to ensure we have the latest data
+      let currentInventory = userDrugInventory;
+      console.log('🔄 Loading fresh drug inventory for dispensing...');
+      
+      try {
+        const { data: freshInventory, error: inventoryError } = await DrugInventoryService.getUserDrugInventory();
+        if (inventoryError) {
+          console.error('❌ Error loading drug inventory:', inventoryError);
+          throw new Error(`Failed to load inventory: ${inventoryError}`);
+        }
+        
+        if (freshInventory && freshInventory.length > 0) {
+          currentInventory = freshInventory;
+          setUserDrugInventory(freshInventory); // Update state for future use
+          console.log('✅ Loaded fresh inventory:', {
+            count: freshInventory.length,
+            drugs: freshInventory.map(d => d.drug_name)
+          });
+        } else {
+          console.warn('⚠️ No inventory data received from service');
+          if (!currentInventory || currentInventory.length === 0) {
+            console.error('❌ No inventory available for dispensing');
+            return;
+          }
+        }
+      } catch (invError) {
+        console.error('❌ Failed to load drug inventory:', invError);
+        if (!currentInventory || currentInventory.length === 0) {
+          console.error('❌ No fallback inventory available, cannot proceed with dispensing');
+          return;
+        }
+        console.log('⚠️ Using existing inventory as fallback');
+      }
+
+      const patientInfo = {
+        patient_name: diagnosis.patient_name,
+        patient_age: diagnosis.patient_age,
+        patient_gender: diagnosis.patient_gender,
+        primary_diagnosis: diagnosis.primary_diagnosis
+      };
+
+      // Match inventory drugs by name to find their IDs from currentInventory
+      console.log('🔍 Starting drug matching process...');
+      console.log('📋 Drugs to match:', diagnosis.inventory_drugs.map(d => ({ name: d.drug_name, id: d.id || d.drug_id })));
+      console.log('🏪 Available inventory:', currentInventory.map(d => ({ name: d.drug_name, id: d.id })));
+      
+      const dispensings = [];
+      
+      for (const drug of diagnosis.inventory_drugs) {
+        console.log('🔎 Processing drug:', { 
+          name: drug.drug_name, 
+          id: drug.id || drug.drug_id, 
+          dosage: drug.dosage,
+          duration: drug.duration
+        });
+        
+        // Try to find the drug ID from currentInventory by matching drug name
+        const matchingInventoryDrug = currentInventory.find(invDrug => 
+          invDrug.drug_name === drug.drug_name ||
+          (drug.id && invDrug.id === drug.id) ||
+          (drug.drug_id && invDrug.id === drug.drug_id)
+        );
+        
+        if (matchingInventoryDrug) {
+          console.log('✅ Found matching inventory drug:', {
+            inventoryDrug: { name: matchingInventoryDrug.drug_name, id: matchingInventoryDrug.id },
+            diagnosisDrug: { name: drug.drug_name, id: drug.id || drug.drug_id }
+          });
+          const quantity = extractQuantityFromDosage(drug.dosage) || 1;
+          console.log('📊 Extracted quantity:', quantity, 'from dosage:', drug.dosage);
+          
+          dispensings.push({
+            drugId: matchingInventoryDrug.id,
+            quantity: quantity,
+            notes: `Prescribed for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}`
+          });
+        } else {
+          console.warn('❌ Could not find matching inventory drug for:', drug.drug_name);
+          console.warn('🏪 Available inventory drugs:', currentInventory.map(inv => inv.drug_name));
+          console.warn('🔍 Tried matching by:', {
+            byName: drug.drug_name,
+            byId: drug.id || drug.drug_id,
+            availableNames: currentInventory.map(inv => inv.drug_name),
+            availableIds: currentInventory.map(inv => inv.id)
+          });
+        }
+      }
+
+      console.log('📝 Final dispensings to record:', dispensings);
+
+      if (dispensings.length > 0) {
+        console.log('💾 Recording', dispensings.length, 'dispensings to database...');
+        console.log('📋 Patient info for dispensing:', patientInfo);
+        
+        const { error } = await DrugDispensingService.recordMultipleDispensings(
+          dispensings,
+          diagnosis.id,
+          patientInfo
+        );
+
+        if (error) {
+          console.error('❌ Failed to record drug dispensing:', error);
+          // Don't show error to user as this is a background operation
+        } else {
+          console.log('✅ Successfully recorded drug dispensing for', dispensings.length, 'drugs');
+          console.log('🎉 Automatic dispensing completed successfully!');
+        }
+      } else {
+        console.warn('⚠️ No dispensings recorded - could not match any inventory drugs');
+        console.warn('🔍 This might indicate a mismatch between diagnosis drugs and inventory');
+      }
+    } catch (err) {
+      console.error('❌ Error in drug dispensing process:', err);
+      console.error('🔍 Full error details:', err);
+    }
+  };
+
+  const manuallyRecordDispensing = async () => {
+    if (!diagnosisResult) return;
+
+    try {
+      setRecordingDispensing(true);
+      await recordDrugDispensing(diagnosisResult);
+      setDispensingRecorded(true);
+      setTimeout(() => setDispensingRecorded(false), 3000); // Reset after 3 seconds
+    } catch (err) {
+      console.error('Manual dispensing record failed:', err);
+    } finally {
+      setRecordingDispensing(false);
+    }
+  };
+
+  const extractQuantityFromDosage = (dosage: string): number => {
+    if (!dosage) return 1;
+    
+    // Try to extract number from dosage string (e.g., "2 tablets" -> 2)
+    const match = dosage.match(/(\d+)/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    
+    // Default to 1 if no number found
+    return 1;
   };
 
   const updateEditedField = (field: string, value: any) => {
@@ -373,6 +573,25 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           console.log('Setting diagnosis result:', updatedDiagnosis);
           console.log('Drug suggestions in result:', updatedDiagnosis?.drug_suggestions);
           setDiagnosisResult(updatedDiagnosis);
+          
+          // Record drug dispensing for inventory drugs (background operation)
+          // Enhanced automatic dispensing with better error handling
+          console.log('🔄 Initiating automatic drug dispensing for diagnosis:', updatedDiagnosis?.id);
+          console.log('📋 Available inventory drugs for dispensing:', updatedDiagnosis?.inventory_drugs);
+          
+          if (updatedDiagnosis?.inventory_drugs && updatedDiagnosis.inventory_drugs.length > 0) {
+            console.log('✅ Found inventory drugs, proceeding with automatic dispensing...');
+            setTimeout(async () => {
+              try {
+                await recordDrugDispensing(updatedDiagnosis);
+                console.log('✅ Automatic dispensing completed successfully');
+              } catch (error) {
+                console.error('❌ Automatic dispensing failed:', error);
+              }
+            }, 1500); // Increased delay to ensure better timing
+          } else {
+            console.log('ℹ️ No inventory drugs found for automatic dispensing');
+          }
         }
       }
 
@@ -432,15 +651,75 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
             <div className="flex items-center gap-4">
               <h2 className="text-2xl font-semibold text-slate-900">Diagnosis Complete</h2>
               {!isEditing ? (
-                <button
-                  onClick={startEditing}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                  Edit Diagnosis
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={startEditing}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    Edit Diagnosis
+                  </button>
+                  <button
+                    onClick={savePatient}
+                    disabled={savingPatient || !diagnosisResult?.patient_name}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {savingPatient ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Saving...
+                      </>
+                    ) : patientSaved ? (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Patient Saved!
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                        Save Patient
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={manuallyRecordDispensing}
+                    disabled={recordingDispensing || !diagnosisResult?.inventory_drugs?.length}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {recordingDispensing ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Recording...
+                      </>
+                    ) : dispensingRecorded ? (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Recorded!
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                        </svg>
+                        Record Dispensing
+                      </>
+                    )}
+                  </button>
+                </div>
               ) : (
                 <div className="flex gap-2">
                   <button

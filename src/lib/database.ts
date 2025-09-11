@@ -334,25 +334,37 @@ export class N8nService {
     // Define condition-drug mappings for better matching
     const conditionMappings = {
       // Pain & Fever
-      'pain|sāp|headache|galvassāp|fever|temperature|drudzis': ['paracetamol', 'ibuprofen', 'analgin', 'aspirin', 'ketanov', 'dolmen', 'acetaminophen'],
+      'pain|sāp|headache|galvassāp|fever|temperature|drudzis|migraine|migrēna|toothache|zobu': ['paracetamol', 'ibuprofen', 'analgin', 'aspirin', 'ketanov', 'dolmen', 'acetaminophen', 'naproxen', 'diclofenac', 'tramadol'],
       
       // Respiratory & Cough
-      'cough|klepu|runny nose|iesnas|cold|saaukstēšan|respiratory|elpceļ': ['acc', 'mucosolvan', 'broncho', 'actifed', 'coldargan', 'sirup', 'expectorant'],
+      'cough|klepu|runny nose|iesnas|cold|saaukstēšan|respiratory|elpceļ|sore throat|rīkle|bronchitis|pneimonij|asthma': ['acc', 'mucosolvan', 'broncho', 'actifed', 'coldargan', 'sirup', 'expectorant', 'salbutamol', 'ventolin', 'berodual', 'prednisolon'],
       
       // Digestive Issues
-      'nausea|vomit|vemšan|diarrhea|caureja|stomach|kuņģ|gastro|constipation|aizcietējum|bloating|uzpūšan|gas|gāz|meteorism|digestive|gremošan|bowel|zarn|intestinal': ['metoclopramid', 'loperamid', 'smecta', 'rehydron', 'omeprazol', 'antacid', 'lactulose', 'laktulose', 'duphalac', 'simeticon', 'espumisan', 'motilium', 'disflatyl'],
+      'nausea|vomit|vemšan|diarrhea|caureja|stomach|kuņģ|gastro|constipation|aizcietējum|bloating|uzpūšan|gas|gāz|meteorism|digestive|gremošan|bowel|zarn|intestinal|heartburn|grēmošana|acid|skābe': ['metoclopramid', 'loperamid', 'smecta', 'rehydron', 'omeprazol', 'antacid', 'lactulose', 'laktulose', 'duphalac', 'simeticon', 'espumisan', 'motilium', 'disflatyl', 'ranitidine', 'domperidone'],
       
       // Infections
-      'infection|infekcij|antibiotic|antibiotik|bacteria|bakterij': ['azithromycin', 'azibiot', 'amoxicillin', 'cipro', 'betaklav', 'ceftriaxon'],
+      'infection|infekcij|antibiotic|antibiotik|bacteria|bakterij|pneumonia|pneimonija|bronchitis|sinusitis|uti|urinary': ['azithromycin', 'azibiot', 'amoxicillin', 'cipro', 'betaklav', 'ceftriaxon', 'clarithromycin', 'erythromycin', 'doxycycline'],
       
       // Skin & Topical
-      'skin|ād|rash|izsitum|wound|brūc|cut|griezum': ['bepanthen', 'betadin', 'clotrimazol', 'cream', 'krēms', 'ziede'],
+      'skin|ād|rash|izsitum|wound|brūc|cut|griezum|eczema|dermatitis|psoriasis|fungal|sēnīt': ['bepanthen', 'betadin', 'clotrimazol', 'cream', 'krēms', 'ziede', 'hydrocortisone', 'betamethasone', 'miconazole'],
       
       // Allergy
-      'allergy|alergij|itch|niez|antihistamin': ['loratadin', 'cetirizin', 'suprastin', 'clarityn'],
+      'allergy|alergij|itch|niez|antihistamin|hives|nātrene|allergic rhinitis': ['loratadin', 'cetirizin', 'suprastin', 'clarityn', 'fenistil', 'tavegil', 'zyrtec', 'telfast'],
       
       // Eye conditions
-      'eye|acu|dry eyes|sausa': ['artelac', 'corneregel', 'pilieni']
+      'eye|acu|dry eyes|sausa|conjunctivitis|konjunktivīts|red eyes|sarkanas': ['artelac', 'corneregel', 'pilieni', 'chloramphenicol', 'gentamicin'],
+      
+      // Cardiovascular
+      'heart|sirds|blood pressure|asinsspiedien|hypertension|chest pain|krūtu sāp|arrhythmia': ['atenolol', 'amlodipine', 'enalapril', 'metoprolol', 'carvedilol', 'lisinopril'],
+      
+      // Diabetes & Metabolic
+      'diabetes|diabēts|blood sugar|cukurs|metabolic|vielmaiņ': ['metformin', 'insulin', 'glibenclamide', 'gliclazide'],
+      
+      // Mental Health & Sleep
+      'anxiety|trauksm|depression|depresij|sleep|miega|insomnia|bezmiega|stress': ['diazepam', 'lorazepam', 'zolpidem', 'melatonin', 'valerian'],
+      
+      // Vitamins & Supplements
+      'vitamin|vitamīn|supplement|papildinājum|deficiency|trūkum|weakness|vājum': ['vitamin', 'b12', 'iron', 'calcium', 'magnesium', 'zinc', 'omega']
     };
     
     // Score drugs based on relevance
@@ -392,9 +404,21 @@ export class N8nService {
           score = 1; // Minimum score for any in-stock drug
         }
         
+        // Add diversity bonus for different therapeutic categories
+        if (drug.category?.name) {
+          score += 0.5; // Small bonus for categorized drugs to ensure variety
+        }
+        
         return { ...drug, relevance_score: score };
       })
-      .sort((a, b) => b.relevance_score - a.relevance_score); // Sort by relevance
+      .sort((a, b) => {
+        // First sort by relevance score, then by category diversity
+        if (Math.abs(a.relevance_score - b.relevance_score) < 2) {
+          // If scores are close, prefer different categories for variety
+          return (a.category?.name || '').localeCompare(b.category?.name || '');
+        }
+        return b.relevance_score - a.relevance_score;
+      }); // Sort by relevance with diversity consideration
     
     console.log(`Filtered ${scoredDrugs.length} drugs from ${drugs.length} total. Top 10 scores:`, 
       scoredDrugs.slice(0, 10).map(d => ({ name: d.drug_name, score: d.relevance_score })));
@@ -416,9 +440,9 @@ export class N8nService {
             // Filter and prioritize most relevant drugs
             const relevantDrugs = this.filterRelevantDrugs(userDrugs, formData.complaint + ' ' + (formData.symptoms || ''));
             
-            // Format drug inventory for AI analysis (top 150 with essential info)
+            // Format drug inventory for AI analysis (top 200 with essential info)
             drugInventory = relevantDrugs
-              .slice(0, 150) // Send up to 150 most relevant drugs to avoid payload size issues
+              .slice(0, 200) // Send up to 200 most relevant drugs for better therapy options
               .map(drug => ({
                 id: drug.id,
                 name: drug.drug_name,
@@ -480,6 +504,14 @@ export class N8nService {
         // Include drug inventory if available
         user_drug_inventory: drugInventory,
         has_drug_inventory: drugInventory !== null && drugInventory.length > 0,
+        // Request comprehensive therapy recommendations
+        therapy_request: {
+          request_comprehensive_therapy: true,
+          minimum_additional_therapy_count: drugInventory && drugInventory.length > 0 ? 3 : 5,
+          include_alternative_treatments: true,
+          include_otc_medications: true,
+          therapy_explanation: "Please provide comprehensive therapy recommendations including both inventory drugs (if available) and additional external therapy options. For users without inventory, provide at least 5 diverse therapy options. For users with inventory, provide at least 3 additional external therapy options beyond inventory drugs to ensure comprehensive treatment coverage."
+        },
       };
 
       // Add medical fields only if they have values (to reduce payload size)

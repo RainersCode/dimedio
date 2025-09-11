@@ -128,9 +128,13 @@ export interface PatientProfile {
   patient_name: string;
   patient_age?: number;
   patient_gender?: string;
+  patient_id?: string;
+  date_of_birth?: string;
   medical_history?: string[];
   allergies?: string[];
   current_medications?: string[];
+  last_diagnosis_id?: string;
+  last_visit_date?: string;
   
   is_active: boolean;
   created_at: string;
