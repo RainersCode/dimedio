@@ -1641,30 +1641,48 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {diagnosisResult.inventory_drugs?.map((drug: any, index: number) => (
-                    <div key={index} className="bg-white rounded-lg border border-green-200 p-3">
-                      <div className="flex items-start justify-between mb-2">
-                        <h4 className="font-medium text-green-900">{drug.drug_name}</h4>
-                        <div className="flex items-center space-x-2">
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            ✓ In Stock
-                          </span>
-                          {drug.prescription_required && (
-                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                              Prescription Required
+                  {diagnosisResult.inventory_drugs?.map((drug: any, index: number) => {
+                    // Find matching inventory drug to get stock quantity
+                    const inventoryDrug = userDrugInventory?.find(invDrug => 
+                      invDrug.drug_name.toLowerCase().trim() === drug.drug_name.toLowerCase().trim()
+                    );
+                    const availableStock = inventoryDrug?.stock_quantity || 0;
+                    
+                    return (
+                      <div key={index} className="bg-white rounded-lg border border-green-200 p-3">
+                        <div className="flex items-start justify-between mb-2">
+                          <h4 className="font-medium text-green-900">{drug.drug_name}</h4>
+                          <div className="flex items-center space-x-2">
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              📦 Available: {availableStock}
                             </span>
-                          )}
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              ✓ In Stock
+                            </span>
+                            {drug.prescription_required && (
+                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                Prescription Required
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-sm text-green-700 space-y-1">
+                          {drug.therapeutic_class && <p><strong>Class:</strong> {drug.therapeutic_class}</p>}
+                          <p><strong>Dosage:</strong> {drug.dosage}</p>
+                          {drug.duration && <p><strong>Duration:</strong> {drug.duration}</p>}
+                          {drug.instructions && <p><strong>Instructions:</strong> {drug.instructions}</p>}
+                          {drug.clinical_rationale && <p><strong>Rationale:</strong> {drug.clinical_rationale}</p>}
+                          <div className="flex items-center gap-2 mt-3 pt-2 border-t border-green-200">
+                            <label className="font-medium text-green-800">Will dispense:</label>
+                            <span className="px-2 py-1 bg-green-50 border border-green-300 rounded text-green-800 font-medium">
+                              1 unit
+                            </span>
+                            <span className="text-xs text-green-600">(default quantity)</span>
+                          </div>
                         </div>
                       </div>
-                      <div className="text-sm text-green-700 space-y-1">
-                        {drug.therapeutic_class && <p><strong>Class:</strong> {drug.therapeutic_class}</p>}
-                        <p><strong>Dosage:</strong> {drug.dosage}</p>
-                        {drug.duration && <p><strong>Duration:</strong> {drug.duration}</p>}
-                        {drug.instructions && <p><strong>Instructions:</strong> {drug.instructions}</p>}
-                        {drug.clinical_rationale && <p><strong>Rationale:</strong> {drug.clinical_rationale}</p>}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
