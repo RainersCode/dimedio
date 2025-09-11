@@ -218,13 +218,46 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
   const extractQuantityFromDosage = (dosage: string): number => {
     if (!dosage) return 1;
     
-    // Try to extract number from dosage string (e.g., "2 tablets" -> 2)
-    const match = dosage.match(/(\d+)/);
-    if (match) {
-      return parseInt(match[1], 10);
+    const lowerDosage = dosage.toLowerCase();
+    
+    // Look for quantity patterns that indicate number of units to dispense
+    const quantityPatterns = [
+      // Direct quantity indicators
+      /(\d+)\s*(?:tablet|tablets|tabletes?|kapsul|capsul|pill|pills)/i,
+      /(\d+)\s*(?:tab|caps?|pcs?|pieces?|gab)/i,
+      /take\s+(\d+)/i,
+      /(\d+)\s*(?:times?\s+(?:per\s+)?day|daily|reizes?\s+dien)/i,
+      /(\d+)\s*(?:x\s*daily|x\s*per\s*day)/i,
+      // Number before common dosage words
+      /(\d+)\s*(?:morning|evening|night|noon)/i,
+      // Simple number at start
+      /^(\d+)\s/,
+    ];
+    
+    // Try each pattern to find quantity
+    for (const pattern of quantityPatterns) {
+      const match = dosage.match(pattern);
+      if (match) {
+        const quantity = parseInt(match[1], 10);
+        console.log(`📊 Extracted quantity ${quantity} from "${dosage}" using pattern: ${pattern}`);
+        return quantity;
+      }
     }
     
-    // Default to 1 if no number found
+    // If no specific quantity pattern found, look for the first reasonable number
+    // but avoid dosage amounts (mg, g, ml, etc.)
+    const generalMatch = dosage.match(/(\d+)(?!\s*(?:mg|g|ml|mcg|μg|units?|iu|%|mm|cm))/i);
+    if (generalMatch) {
+      const quantity = parseInt(generalMatch[1], 10);
+      // Reasonable quantity range check (avoid extracting years, large dosage amounts, etc.)
+      if (quantity >= 1 && quantity <= 20) {
+        console.log(`📊 Extracted general quantity ${quantity} from "${dosage}"`);
+        return quantity;
+      }
+    }
+    
+    console.log(`📊 No quantity found in "${dosage}", defaulting to 1`);
+    // Default to 1 if no reasonable number found
     return 1;
   };
 

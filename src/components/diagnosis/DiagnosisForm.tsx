@@ -278,11 +278,35 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         });
         
         // Try to find the drug ID from currentInventory by matching drug name
-        const matchingInventoryDrug = currentInventory.find(invDrug => 
-          invDrug.drug_name === drug.drug_name ||
-          (drug.id && invDrug.id === drug.id) ||
-          (drug.drug_id && invDrug.id === drug.drug_id)
-        );
+        const matchingInventoryDrug = currentInventory.find(invDrug => {
+          // Normalize names for comparison (lowercase, remove extra spaces)
+          const normalizeName = (name: string) => name?.toLowerCase().replace(/\s+/g, ' ').trim() || '';
+          const normalizeForMatching = (name: string) => {
+            return normalizeName(name)
+              .replace(/\s+n\d+.*$/i, '') // Remove package size (N12, N14, etc.)
+              .replace(/\s+(tabletes?|kapsulas?|ml|mg|g)\b/gi, '') // Remove common units
+              .replace(/\s+mutē\s+disperģējamās/gi, '') // Remove specific Latvian terms
+              .replace(/\s+apvalkotās/gi, '')
+              .replace(/\bmg\/\d+\s*mg\b/gi, 'mg') // Normalize dosage like "500 mg/125 mg" to "500mg"
+              .replace(/\s+/g, ' ').trim();
+          };
+          
+          const invDrugNormalized = normalizeForMatching(invDrug.drug_name);
+          const diagnosisDrugNormalized = normalizeForMatching(drug.drug_name);
+          
+          return (
+            // Exact match
+            normalizeName(invDrug.drug_name) === normalizeName(drug.drug_name) ||
+            // Normalized match
+            invDrugNormalized === diagnosisDrugNormalized ||
+            // Check if one contains the other (partial match)
+            (invDrugNormalized.includes(diagnosisDrugNormalized) && diagnosisDrugNormalized.length > 5) ||
+            (diagnosisDrugNormalized.includes(invDrugNormalized) && invDrugNormalized.length > 5) ||
+            // ID matches
+            (drug.id && invDrug.id === drug.id) ||
+            (drug.drug_id && invDrug.id === drug.drug_id)
+          );
+        });
         
         if (matchingInventoryDrug) {
           console.log('✅ Found matching inventory drug:', {
@@ -294,17 +318,20 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           
           dispensings.push({
             drugId: matchingInventoryDrug.id,
+            drugName: drug.drug_name, // Store the original drug name from diagnosis
             quantity: quantity,
             notes: `Prescribed for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}`
           });
         } else {
           console.warn('❌ Could not find matching inventory drug for:', drug.drug_name);
-          console.warn('🏪 Available inventory drugs:', currentInventory.map(inv => inv.drug_name));
-          console.warn('🔍 Tried matching by:', {
-            byName: drug.drug_name,
-            byId: drug.id || drug.drug_id,
-            availableNames: currentInventory.map(inv => inv.drug_name),
-            availableIds: currentInventory.map(inv => inv.id)
+          console.log('📝 Recording drug without inventory match...');
+          // Still record the drug even if not found in inventory
+          const quantity = extractQuantityFromDosage(drug.dosage) || 1;
+          dispensings.push({
+            drugId: null, // No inventory drug ID
+            drugName: drug.drug_name, // Store the drug name from diagnosis
+            quantity: quantity,
+            notes: `Prescribed for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}. Note: Drug not found in current inventory.`
           });
         }
       }
@@ -363,13 +390,46 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   const extractQuantityFromDosage = (dosage: string): number => {
     if (!dosage) return 1;
     
-    // Try to extract number from dosage string (e.g., "2 tablets" -> 2)
-    const match = dosage.match(/(\d+)/);
-    if (match) {
-      return parseInt(match[1], 10);
+    const lowerDosage = dosage.toLowerCase();
+    
+    // Look for quantity patterns that indicate number of units to dispense
+    const quantityPatterns = [
+      // Direct quantity indicators
+      /(\d+)\s*(?:tablet|tablets|tabletes?|kapsul|capsul|pill|pills)/i,
+      /(\d+)\s*(?:tab|caps?|pcs?|pieces?|gab)/i,
+      /take\s+(\d+)/i,
+      /(\d+)\s*(?:times?\s+(?:per\s+)?day|daily|reizes?\s+dien)/i,
+      /(\d+)\s*(?:x\s*daily|x\s*per\s*day)/i,
+      // Number before common dosage words
+      /(\d+)\s*(?:morning|evening|night|noon)/i,
+      // Simple number at start
+      /^(\d+)\s/,
+    ];
+    
+    // Try each pattern to find quantity
+    for (const pattern of quantityPatterns) {
+      const match = dosage.match(pattern);
+      if (match) {
+        const quantity = parseInt(match[1], 10);
+        console.log(`📊 Extracted quantity ${quantity} from "${dosage}" using pattern: ${pattern}`);
+        return quantity;
+      }
     }
     
-    // Default to 1 if no number found
+    // If no specific quantity pattern found, look for the first reasonable number
+    // but avoid dosage amounts (mg, g, ml, etc.)
+    const generalMatch = dosage.match(/(\d+)(?!\s*(?:mg|g|ml|mcg|μg|units?|iu|%|mm|cm))/i);
+    if (generalMatch) {
+      const quantity = parseInt(generalMatch[1], 10);
+      // Reasonable quantity range check (avoid extracting years, large dosage amounts, etc.)
+      if (quantity >= 1 && quantity <= 20) {
+        console.log(`📊 Extracted general quantity ${quantity} from "${dosage}"`);
+        return quantity;
+      }
+    }
+    
+    console.log(`📊 No quantity found in "${dosage}", defaulting to 1`);
+    // Default to 1 if no reasonable number found
     return 1;
   };
 
@@ -758,6 +818,45 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                     Cancel
                   </button>
                 </div>
+              )}
+              
+              {/* Validation messages */}
+              {!isEditing && (
+                <>
+                  {/* Validation message for Save Patient button */}
+                  {!diagnosisResult?.patient_name && !patientSaved && (
+                    <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <svg className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                        </svg>
+                        <div>
+                          <p className="text-sm font-medium text-yellow-800">Patient name required to save patient data</p>
+                          <p className="text-sm text-yellow-700 mt-1">
+                            Please expand the "Patient Details" section above and add at least a patient name to enable saving patient information to your database.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Validation message for Record Dispensing button */}
+                  {!dispensingRecorded && !recordingDispensing && (!diagnosisResult?.inventory_drugs?.length || diagnosisResult.inventory_drugs.length === 0) && (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div>
+                          <p className="text-sm font-medium text-blue-800">No drugs available for dispensing</p>
+                          <p className="text-sm text-blue-700 mt-1">
+                            This diagnosis doesn't contain any drugs from your inventory. You can manually add dispensing records later from the Drug Dispensing page.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
             

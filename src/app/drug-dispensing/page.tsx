@@ -4,6 +4,8 @@ import Navigation from '@/components/layout/Navigation';
 import { DrugDispensingService, DrugDispensingRecord, DispensingStats } from '@/lib/drugDispensingService';
 import { PatientService } from '@/lib/patientService';
 import { DatabaseService } from '@/lib/database';
+import { DrugInventoryService } from '@/lib/drugInventory';
+import { UserDrugInventory, PatientProfile } from '@/types/database';
 import { useState, useEffect } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 
@@ -20,6 +22,18 @@ export default function DrugDispensing() {
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  
+  // Manual dispensing form
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [drugSearch, setDrugSearch] = useState('');
+  const [drugSuggestions, setDrugSuggestions] = useState<UserDrugInventory[]>([]);
+  const [selectedDrug, setSelectedDrug] = useState<UserDrugInventory | null>(null);
+  const [patientSearch, setPatientSearch] = useState('');
+  const [patientSuggestions, setPatientSuggestions] = useState<PatientProfile[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
+  const [quantity, setQuantity] = useState<number>(1);
+  const [notes, setNotes] = useState('');
+  const [addingDispensing, setAddingDispensing] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -130,6 +144,98 @@ export default function DrugDispensing() {
     }
   };
 
+  // Drug search functionality
+  const searchDrugs = async (searchTerm: string) => {
+    if (searchTerm.length < 2) {
+      setDrugSuggestions([]);
+      return;
+    }
+    
+    try {
+      const { data: inventory } = await DrugInventoryService.getUserDrugInventory();
+      if (inventory) {
+        const filtered = inventory.filter(drug => 
+          drug.drug_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          drug.generic_name?.toLowerCase().includes(searchTerm.toLowerCase())
+        ).slice(0, 10); // Limit to 10 suggestions
+        setDrugSuggestions(filtered);
+      }
+    } catch (err) {
+      console.error('Error searching drugs:', err);
+    }
+  };
+
+  // Patient search functionality  
+  const searchPatients = async (searchTerm: string) => {
+    if (searchTerm.length < 2) {
+      setPatientSuggestions([]);
+      return;
+    }
+    
+    try {
+      const { data: patients } = await PatientService.getPatients(50);
+      if (patients) {
+        const filtered = patients.filter(patient => 
+          patient.patient_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          patient.patient_surname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          patient.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
+        ).slice(0, 10); // Limit to 10 suggestions
+        setPatientSuggestions(filtered);
+      }
+    } catch (err) {
+      console.error('Error searching patients:', err);
+    }
+  };
+
+  // Handle manual dispensing submission
+  const handleManualDispensing = async () => {
+    if (!selectedDrug || !selectedPatient || quantity < 1) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setAddingDispensing(true);
+      setError('');
+
+      const { error } = await DrugDispensingService.recordDispensing(
+        selectedDrug.id,
+        null, // No diagnosis ID for manual entries
+        quantity,
+        {
+          patient_name: selectedPatient.patient_name,
+          patient_age: selectedPatient.patient_age,
+          patient_gender: selectedPatient.patient_gender,
+          primary_diagnosis: 'Manual dispensing'
+        },
+        notes || 'Manually added to dispensing history'
+      );
+
+      if (error) {
+        throw new Error(error);
+      }
+
+      // Reset form
+      setSelectedDrug(null);
+      setSelectedPatient(null);
+      setQuantity(1);
+      setNotes('');
+      setDrugSearch('');
+      setPatientSearch('');
+      setDrugSuggestions([]);
+      setPatientSuggestions([]);
+      setShowManualForm(false);
+
+      // Refresh data
+      await fetchData();
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add manual dispensing');
+    } finally {
+      setAddingDispensing(false);
+    }
+  };
+
   const filteredHistory = dispensingHistory.filter(record => {
     const matchesSearch = !searchTerm || 
       record.drug_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -163,6 +269,12 @@ export default function DrugDispensing() {
           </div>
           <div className="flex gap-2">
             <button 
+              onClick={() => setShowManualForm(!showManualForm)}
+              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+            >
+              {showManualForm ? 'Cancel' : 'Add Manual Dispensing'}
+            </button>
+            <button 
               onClick={async () => {
                 const { results, error } = await DrugDispensingService.testDatabasePermissions();
                 if (error) {
@@ -184,6 +296,44 @@ export default function DrugDispensing() {
             </button>
             <button 
               onClick={async () => {
+                const confirmed = window.confirm(
+                  '🔍 Remove Duplicate Dispensing Records?\n\n' +
+                  'This will find and remove duplicate dispensing records (same diagnosis + same drug). ' +
+                  'The earliest record for each drug will be kept.\n\n' +
+                  'This action cannot be undone. Continue?'
+                );
+                
+                if (confirmed) {
+                  try {
+                    setLoading(true);
+                    const { success, duplicatesRemoved, error } = await DrugDispensingService.removeDuplicateDispensings();
+                    
+                    if (success) {
+                      await fetchData(); // Refresh the data
+                      if (duplicatesRemoved > 0) {
+                        alert(`✅ Successfully removed ${duplicatesRemoved} duplicate records!`);
+                      } else {
+                        alert('✅ No duplicates found. Your dispensing history is clean!');
+                      }
+                    } else {
+                      setError(error || 'Failed to remove duplicates');
+                      alert('❌ Failed to remove duplicates: ' + (error || 'Unknown error'));
+                    }
+                  } catch (err) {
+                    const errorMsg = err instanceof Error ? err.message : 'Unknown error occurred';
+                    setError(errorMsg);
+                    alert('❌ Error removing duplicates: ' + errorMsg);
+                  } finally {
+                    setLoading(false);
+                  }
+                }
+              }}
+              className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+            >
+              Remove Duplicates
+            </button>
+            <button 
+              onClick={async () => {
                 const { data, error } = await DrugDispensingService.createTestDispensingRecord();
                 if (error) {
                   setError(error);
@@ -198,6 +348,158 @@ export default function DrugDispensing() {
             </button>
           </div>
         </div>
+
+        {/* Manual Dispensing Form */}
+        {showManualForm && (
+          <div className="bg-white rounded-xl border border-slate-200 mb-8">
+            <div className="px-6 py-4 border-b border-slate-200">
+              <h2 className="text-lg font-semibold text-slate-900">Add Manual Dispensing</h2>
+              <p className="text-sm text-slate-600 mt-1">Add drugs given to patients that weren't recorded during diagnosis</p>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                {/* Drug Search */}
+                <div className="relative">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Drug *</label>
+                  <input
+                    type="text"
+                    placeholder="Search drug name..."
+                    value={drugSearch}
+                    onChange={(e) => {
+                      setDrugSearch(e.target.value);
+                      searchDrugs(e.target.value);
+                    }}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                  {drugSuggestions.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {drugSuggestions.map((drug) => (
+                        <div
+                          key={drug.id}
+                          onClick={() => {
+                            setSelectedDrug(drug);
+                            setDrugSearch(drug.drug_name);
+                            setDrugSuggestions([]);
+                          }}
+                          className="px-3 py-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0"
+                        >
+                          <div className="font-medium text-slate-900">{drug.drug_name}</div>
+                          <div className="text-sm text-slate-600">
+                            {drug.strength && `${drug.strength} • `}
+                            {drug.dosage_form && `${drug.dosage_form} • `}
+                            Stock: {drug.stock_quantity}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedDrug && (
+                    <div className="mt-2 p-2 bg-emerald-50 border border-emerald-200 rounded">
+                      <div className="text-sm font-medium text-emerald-900">Selected: {selectedDrug.drug_name}</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Patient Search */}
+                <div className="relative">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Patient *</label>
+                  <input
+                    type="text"
+                    placeholder="Search patient name..."
+                    value={patientSearch}
+                    onChange={(e) => {
+                      setPatientSearch(e.target.value);
+                      searchPatients(e.target.value);
+                    }}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                  {patientSuggestions.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {patientSuggestions.map((patient) => (
+                        <div
+                          key={patient.id}
+                          onClick={() => {
+                            setSelectedPatient(patient);
+                            setPatientSearch(`${patient.patient_name} ${patient.patient_surname || ''}`.trim());
+                            setPatientSuggestions([]);
+                          }}
+                          className="px-3 py-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0"
+                        >
+                          <div className="font-medium text-slate-900">
+                            {patient.patient_name} {patient.patient_surname}
+                          </div>
+                          <div className="text-sm text-slate-600">
+                            {patient.patient_id && `ID: ${patient.patient_id} • `}
+                            {patient.patient_age && `Age: ${patient.patient_age} • `}
+                            {patient.patient_gender}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedPatient && (
+                    <div className="mt-2 p-2 bg-emerald-50 border border-emerald-200 rounded">
+                      <div className="text-sm font-medium text-emerald-900">
+                        Selected: {selectedPatient.patient_name} {selectedPatient.patient_surname}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Quantity */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Quantity *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={quantity}
+                    onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+                  <input
+                    type="text"
+                    placeholder="Optional notes..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleManualDispensing}
+                  disabled={!selectedDrug || !selectedPatient || quantity < 1 || addingDispensing}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {addingDispensing ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Adding...
+                    </>
+                  ) : (
+                    'Add Dispensing'
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowManualForm(false)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Statistics Cards */}
         {stats && (

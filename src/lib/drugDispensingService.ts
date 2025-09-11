@@ -147,6 +147,36 @@ export class DrugDispensingService {
       return { data: null, error: 'No valid drugs to record' };
     }
 
+    // Check for duplicates if diagnosisId is provided
+    if (diagnosisId) {
+      console.log('🔍 Checking for existing dispensing records for diagnosis:', diagnosisId);
+      const { data: existingRecords, error: checkError } = await supabase
+        .from('drug_usage_history')
+        .select('id, drug_id')
+        .eq('user_id', user.id)
+        .eq('diagnosis_id', diagnosisId);
+
+      if (!checkError && existingRecords && existingRecords.length > 0) {
+        console.warn('⚠️ Found existing dispensing records for this diagnosis:', existingRecords.length, 'records');
+        console.log('🔍 Existing records:', existingRecords);
+        
+        // Check if we're trying to add the same drugs
+        const existingDrugIds = new Set(existingRecords.map(r => r.drug_id).filter(Boolean));
+        const newDrugIds = new Set(processedDispensings.map(r => r.drug_id).filter(Boolean));
+        
+        // Find overlapping drugs
+        const overlappingDrugs = [...newDrugIds].filter(id => existingDrugIds.has(id));
+        
+        if (overlappingDrugs.length > 0) {
+          console.warn('⚠️ Attempting to add duplicate drugs:', overlappingDrugs);
+          return { 
+            data: null, 
+            error: `Dispensing records already exist for this diagnosis. Found ${existingRecords.length} existing records.` 
+          };
+        }
+      }
+    }
+
     const { data, error } = await supabase
       .from('drug_usage_history')
       .insert(processedDispensings)
@@ -436,6 +466,88 @@ export class DrugDispensingService {
     }
 
     return this.getDispensingStats(dateFrom.toISOString(), now.toISOString());
+  }
+
+  // Remove duplicate dispensing records for the current user
+  static async removeDuplicateDispensings(): Promise<{ success: boolean; duplicatesRemoved: number; error: string | null }> {
+    console.log('🔍 Starting duplicate removal process...');
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !user) {
+      return { success: false, duplicatesRemoved: 0, error: 'User not authenticated' };
+    }
+
+    try {
+      // Get all dispensing records grouped by diagnosis and drug
+      const { data: allRecords, error: fetchError } = await supabase
+        .from('drug_usage_history')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('dispensed_date', { ascending: true }); // Keep the earliest record
+
+      if (fetchError) {
+        return { success: false, duplicatesRemoved: 0, error: fetchError.message };
+      }
+
+      if (!allRecords || allRecords.length === 0) {
+        return { success: true, duplicatesRemoved: 0, error: null };
+      }
+
+      // Group records by diagnosis_id + drug_id to find duplicates
+      const recordGroups = new Map();
+      
+      allRecords.forEach(record => {
+        const key = `${record.diagnosis_id || 'null'}_${record.drug_id || 'null'}`;
+        if (!recordGroups.has(key)) {
+          recordGroups.set(key, []);
+        }
+        recordGroups.get(key).push(record);
+      });
+
+      // Find duplicate groups (more than 1 record per key)
+      const duplicatesToDelete = [];
+      let duplicatesFound = 0;
+
+      recordGroups.forEach((records, key) => {
+        if (records.length > 1) {
+          console.log(`🔍 Found ${records.length} duplicates for key: ${key}`);
+          duplicatesFound += records.length - 1; // Count all but the first (which we keep)
+          
+          // Keep the first record, delete the rest
+          const toDelete = records.slice(1);
+          duplicatesToDelete.push(...toDelete.map(r => r.id));
+        }
+      });
+
+      if (duplicatesToDelete.length === 0) {
+        console.log('✅ No duplicates found');
+        return { success: true, duplicatesRemoved: 0, error: null };
+      }
+
+      console.log(`🗑️ Removing ${duplicatesToDelete.length} duplicate records...`);
+
+      // Delete the duplicate records
+      const { error: deleteError } = await supabase
+        .from('drug_usage_history')
+        .delete()
+        .in('id', duplicatesToDelete);
+
+      if (deleteError) {
+        console.error('❌ Error deleting duplicates:', deleteError);
+        return { success: false, duplicatesRemoved: 0, error: deleteError.message };
+      }
+
+      console.log(`✅ Successfully removed ${duplicatesToDelete.length} duplicate records`);
+      return { success: true, duplicatesRemoved: duplicatesToDelete.length, error: null };
+
+    } catch (error) {
+      console.error('❌ Exception in removeDuplicateDispensings:', error);
+      return { 
+        success: false, 
+        duplicatesRemoved: 0,
+        error: error instanceof Error ? error.message : 'Failed to remove duplicates' 
+      };
+    }
   }
 
   // Delete all dispensing history for the current user
