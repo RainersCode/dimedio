@@ -81,6 +81,9 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   const [recordingDispensing, setRecordingDispensing] = useState(false);
   const [dispensingRecorded, setDispensingRecorded] = useState(false);
   
+  // Drug dispensing quantities state
+  const [drugQuantities, setDrugQuantities] = useState<{[key: string]: number}>({});
+  
   // Collapsible sections state
   const [expandedSections, setExpandedSections] = useState({
     patientDetails: false,
@@ -152,10 +155,19 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     try {
       setLoading(true);
       
+      // Merge drug quantities into inventory_drugs before saving
+      const diagnosisToSave = { ...editedDiagnosis };
+      if (diagnosisToSave.inventory_drugs) {
+        diagnosisToSave.inventory_drugs = diagnosisToSave.inventory_drugs.map((drug: any, index: number) => ({
+          ...drug,
+          dispense_quantity: drugQuantities[`inventory_${index}`] || 1
+        }));
+      }
+      
       // Update the diagnosis in the database with manual edits
       const { data: updatedDiagnosis, error: updateError } = await DatabaseService.updateDiagnosisManually(
-        editedDiagnosis.id,
-        editedDiagnosis
+        diagnosisToSave.id,
+        diagnosisToSave
       );
 
       if (updateError) {
@@ -164,6 +176,15 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         setDiagnosisResult(updatedDiagnosis);
         setIsEditing(false);
         setEditedDiagnosis(null);
+        
+        // Update drugQuantities state with the saved quantities to ensure consistency
+        if (updatedDiagnosis.inventory_drugs) {
+          const updatedQuantities: {[key: string]: number} = {};
+          updatedDiagnosis.inventory_drugs.forEach((drug: any, index: number) => {
+            updatedQuantities[`inventory_${index}`] = drug.dispense_quantity || 1;
+          });
+          setDrugQuantities(updatedQuantities);
+        }
       }
     } catch (err) {
       setError('Failed to save changes');
@@ -269,12 +290,14 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       
       const dispensings = [];
       
-      for (const drug of diagnosis.inventory_drugs) {
+      for (let index = 0; index < diagnosis.inventory_drugs.length; index++) {
+        const drug = diagnosis.inventory_drugs[index];
         console.log('🔎 Processing drug:', { 
           name: drug.drug_name, 
           id: drug.id || drug.drug_id, 
           dosage: drug.dosage,
-          duration: drug.duration
+          duration: drug.duration,
+          index
         });
         
         // Try to find the drug ID from currentInventory by matching drug name
@@ -313,8 +336,12 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
             inventoryDrug: { name: matchingInventoryDrug.drug_name, id: matchingInventoryDrug.id },
             diagnosisDrug: { name: drug.drug_name, id: drug.id || drug.drug_id }
           });
-          const quantity = extractQuantityFromDosage(drug.dosage) || 1;
-          console.log('📊 Extracted quantity:', quantity, 'from dosage:', drug.dosage);
+          
+          // Get quantity from saved drug data, drugQuantities state, or fallback to 1 unit
+          const drugKey = `inventory_${index}`;
+          const quantity = drug.dispense_quantity || drugQuantities[drugKey] || 1;
+          console.log('📊 Using quantity:', quantity, 'from saved/state (default: 1 unit) for dosage:', drug.dosage);
+          console.log('📊 Debug quantities - saved:', drug.dispense_quantity, 'state:', drugQuantities[drugKey], 'final:', quantity);
           
           dispensings.push({
             drugId: matchingInventoryDrug.id,
@@ -326,7 +353,9 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           console.warn('❌ Could not find matching inventory drug for:', drug.drug_name);
           console.log('📝 Recording drug without inventory match...');
           // Still record the drug even if not found in inventory
-          const quantity = extractQuantityFromDosage(drug.dosage) || 1;
+          const drugKey = `inventory_${index}`;
+          const quantity = drug.dispense_quantity || drugQuantities[drugKey] || 1;
+          console.log('📊 Debug quantities (no inventory match) - saved:', drug.dispense_quantity, 'state:', drugQuantities[drugKey], 'final:', quantity);
           dispensings.push({
             drugId: null, // No inventory drug ID
             drugName: drug.drug_name, // Store the drug name from diagnosis
@@ -370,7 +399,22 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
     try {
       setRecordingDispensing(true);
-      await recordDrugDispensing(diagnosisResult);
+      
+      // Create updated diagnosis with current drug quantities
+      console.log('🔍 Current drugQuantities state:', drugQuantities);
+      const updatedDiagnosisForDispensing = {
+        ...diagnosisResult,
+        inventory_drugs: diagnosisResult.inventory_drugs?.map((drug: any, index: number) => {
+          const currentQuantity = drugQuantities[`inventory_${index}`] || 1;
+          console.log(`🔍 Drug ${index} (${drug.drug_name}): using quantity ${currentQuantity} from state`);
+          return {
+            ...drug,
+            dispense_quantity: currentQuantity
+          };
+        })
+      };
+      
+      await recordDrugDispensing(updatedDiagnosisForDispensing);
       setDispensingRecorded(true);
       
       // Store in localStorage for persistence across pages
@@ -387,50 +431,12 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     }
   };
 
-  const extractQuantityFromDosage = (dosage: string): number => {
-    if (!dosage) return 1;
-    
-    const lowerDosage = dosage.toLowerCase();
-    
-    // Look for quantity patterns that indicate number of units to dispense
-    const quantityPatterns = [
-      // Direct quantity indicators
-      /(\d+)\s*(?:tablet|tablets|tabletes?|kapsul|capsul|pill|pills)/i,
-      /(\d+)\s*(?:tab|caps?|pcs?|pieces?|gab)/i,
-      /take\s+(\d+)/i,
-      /(\d+)\s*(?:times?\s+(?:per\s+)?day|daily|reizes?\s+dien)/i,
-      /(\d+)\s*(?:x\s*daily|x\s*per\s*day)/i,
-      // Number before common dosage words
-      /(\d+)\s*(?:morning|evening|night|noon)/i,
-      // Simple number at start
-      /^(\d+)\s/,
-    ];
-    
-    // Try each pattern to find quantity
-    for (const pattern of quantityPatterns) {
-      const match = dosage.match(pattern);
-      if (match) {
-        const quantity = parseInt(match[1], 10);
-        console.log(`📊 Extracted quantity ${quantity} from "${dosage}" using pattern: ${pattern}`);
-        return quantity;
-      }
-    }
-    
-    // If no specific quantity pattern found, look for the first reasonable number
-    // but avoid dosage amounts (mg, g, ml, etc.)
-    const generalMatch = dosage.match(/(\d+)(?!\s*(?:mg|g|ml|mcg|μg|units?|iu|%|mm|cm))/i);
-    if (generalMatch) {
-      const quantity = parseInt(generalMatch[1], 10);
-      // Reasonable quantity range check (avoid extracting years, large dosage amounts, etc.)
-      if (quantity >= 1 && quantity <= 20) {
-        console.log(`📊 Extracted general quantity ${quantity} from "${dosage}"`);
-        return quantity;
-      }
-    }
-    
-    console.log(`📊 No quantity found in "${dosage}", defaulting to 1`);
-    // Default to 1 if no reasonable number found
-    return 1;
+
+  const updateDrugQuantity = (drugKey: string, quantity: number) => {
+    setDrugQuantities(prev => ({
+      ...prev,
+      [drugKey]: Math.max(1, Math.min(99, quantity)) // Ensure quantity is between 1 and 99
+    }));
   };
 
   const updateEditedField = (field: string, value: any) => {
@@ -543,6 +549,18 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       fetchUserDrugInventory();
     }
   }, [isEditing]);
+
+  // Initialize drug quantities when diagnosis result is set
+  useEffect(() => {
+    if (diagnosisResult && diagnosisResult.inventory_drugs) {
+      const initialQuantities: {[key: string]: number} = {};
+      diagnosisResult.inventory_drugs.forEach((drug: any, index: number) => {
+        // Use saved quantity or default to 1 unit
+        initialQuantities[`inventory_${index}`] = drug.dispense_quantity || 1;
+      });
+      setDrugQuantities(initialQuantities);
+    }
+  }, [diagnosisResult]);
 
   // Check credits when component mounts or user changes
   useEffect(() => {
@@ -1617,6 +1635,20 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                             placeholder="Enter clinical rationale"
                           />
                         </div>
+                        <div>
+                          <label className="font-medium text-green-800 block mb-1">Dispense Quantity:</label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="1"
+                              max="99"
+                              value={drugQuantities[`inventory_${index}`] || 1}
+                              onChange={(e) => updateDrugQuantity(`inventory_${index}`, parseInt(e.target.value) || 1)}
+                              className="w-20 px-2 py-1 border border-green-300 rounded text-green-800 text-center"
+                            />
+                            <span className="text-green-800 font-medium">units</span>
+                          </div>
+                        </div>
                         <div className="flex items-center">
                           <input
                             type="checkbox"
@@ -1674,10 +1706,28 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                           {drug.clinical_rationale && <p><strong>Rationale:</strong> {drug.clinical_rationale}</p>}
                           <div className="flex items-center gap-2 mt-3 pt-2 border-t border-green-200">
                             <label className="font-medium text-green-800">Will dispense:</label>
-                            <span className="px-2 py-1 bg-green-50 border border-green-300 rounded text-green-800 font-medium">
-                              1 unit
-                            </span>
-                            <span className="text-xs text-green-600">(default quantity)</span>
+                            {isEditing ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="99"
+                                  value={drugQuantities[`inventory_${index}`] || 1}
+                                  onChange={(e) => updateDrugQuantity(`inventory_${index}`, parseInt(e.target.value) || 1)}
+                                  className="w-16 px-2 py-1 border border-green-300 rounded text-green-800 font-medium text-center"
+                                />
+                                <span className="text-green-800 font-medium">units</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span className="px-2 py-1 bg-green-50 border border-green-300 rounded text-green-800 font-medium">
+                                  {drug.dispense_quantity || drugQuantities[`inventory_${index}`] || 1} units
+                                </span>
+                                {(drug.dispense_quantity || drugQuantities[`inventory_${index}`] || 1) === 1 && (
+                                  <span className="text-xs text-green-600">(default quantity)</span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

@@ -169,10 +169,58 @@ export class DrugDispensingService {
         
         if (overlappingDrugs.length > 0) {
           console.warn('⚠️ Attempting to add duplicate drugs:', overlappingDrugs);
-          return { 
-            data: null, 
-            error: `Dispensing records already exist for this diagnosis. Found ${existingRecords.length} existing records.` 
-          };
+          console.log('🔄 Updating existing dispensing records instead of creating duplicates...');
+          
+          // Update existing records with new quantities instead of blocking
+          const updatePromises = processedDispensings.map(async (dispensing) => {
+            if (dispensing.drug_id && existingDrugIds.has(dispensing.drug_id)) {
+              // Find and update the existing record
+              const existingRecord = existingRecords.find(r => r.drug_id === dispensing.drug_id);
+              if (existingRecord) {
+                console.log(`🔄 Updating dispensing record ${existingRecord.id} with new quantity: ${dispensing.quantity_dispensed}`);
+                const { data, error } = await supabase
+                  .from('drug_usage_history')
+                  .update({
+                    quantity_dispensed: dispensing.quantity_dispensed,
+                    patient_info: dispensing.patient_info,
+                    notes: dispensing.notes,
+                    dispensed_date: new Date().toISOString(),
+                  })
+                  .eq('id', existingRecord.id)
+                  .eq('user_id', user.id)
+                  .select()
+                  .single();
+                
+                if (error) {
+                  console.error('❌ Error updating dispensing record:', error);
+                  throw error;
+                }
+                return data;
+              }
+            } else {
+              // Insert new record for drugs that don't exist
+              const { data, error } = await supabase
+                .from('drug_usage_history')
+                .insert([dispensing])
+                .select()
+                .single();
+              
+              if (error) {
+                console.error('❌ Error inserting new dispensing record:', error);
+                throw error;
+              }
+              return data;
+            }
+          });
+          
+          try {
+            const updatedData = await Promise.all(updatePromises);
+            console.log('✅ Successfully updated/inserted dispensing records:', updatedData.length);
+            return { data: updatedData.filter(Boolean), error: null };
+          } catch (error) {
+            console.error('❌ Error updating dispensing records:', error);
+            return { data: null, error: error instanceof Error ? error.message : 'Failed to update dispensing records' };
+          }
         }
       }
     }
