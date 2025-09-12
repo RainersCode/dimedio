@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { DatabaseService, N8nService } from '@/lib/database';
 import { PatientService } from '@/lib/patientService';
@@ -20,6 +21,7 @@ interface DiagnosisFormProps {
 export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = '' }: DiagnosisFormProps) {
   const { user } = useSupabaseAuth();
   const { t } = useLanguage();
+  const router = useRouter();
   
   const [formData, setFormData] = useState<DiagnosisFormData>({
     // Basic Info
@@ -197,8 +199,21 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   };
 
   const savePatient = async () => {
-    if (!diagnosisResult || !diagnosisResult.patient_name) {
-      setError('Patient name is required to save patient profile');
+    if (!diagnosisResult) {
+      setError('No diagnosis data available');
+      return;
+    }
+
+    // Check mandatory patient fields
+    const missingFields = [];
+    if (!diagnosisResult.patient_name?.trim()) missingFields.push('First Name');
+    if (!diagnosisResult.patient_surname?.trim()) missingFields.push('Last Name');
+    if (!diagnosisResult.patient_age) missingFields.push('Age');
+    if (!diagnosisResult.patient_gender) missingFields.push('Gender');
+    if (!diagnosisResult.patient_id?.trim()) missingFields.push('Patient ID');
+
+    if (missingFields.length > 0) {
+      setError(`The following patient details are mandatory: ${missingFields.join(', ')}`);
       return;
     }
 
@@ -799,29 +814,33 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
             <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-blue-500/5 to-purple-500/5"></div>
             <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-emerald-100/30 to-transparent rounded-full transform translate-x-32 -translate-y-32"></div>
             
-            <div className="relative flex items-center justify-between">
-              <div className="flex items-center gap-6">
-                <div className="relative">
-                  <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl flex items-center justify-center shadow-2xl transform rotate-3">
-                    <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+            <div className="relative">
+              {/* Header Content */}
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-6">
+                <div className="flex items-center gap-6">
+                  <div className="relative">
+                    <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl flex items-center justify-center shadow-2xl transform rotate-3">
+                      <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div className="absolute -top-1 -right-1 w-6 h-6 bg-emerald-400 rounded-full flex items-center justify-center">
+                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
                   </div>
-                  <div className="absolute -top-1 -right-1 w-6 h-6 bg-emerald-400 rounded-full flex items-center justify-center">
-                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
+                  <div>
+                    <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 bg-clip-text text-transparent">
+                      Diagnosis Complete
+                    </h1>
+                    <p className="text-slate-500 mt-2 text-lg">AI analysis completed successfully</p>
                   </div>
                 </div>
-                <div>
-                  <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 bg-clip-text text-transparent">
-                    Diagnosis Complete
-                  </h1>
-                  <p className="text-slate-500 mt-2 text-lg">AI analysis completed successfully</p>
-                </div>
-              </div>
-              {!isEditing ? (
-                <div className="flex gap-3">
+                
+                {/* Action Buttons */}
+                {!isEditing ? (
+                  <div className="flex flex-wrap gap-3 lg:flex-nowrap">
                   <button
                     onClick={startEditing}
                     className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200"
@@ -833,7 +852,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                   </button>
                   <button
                     onClick={savePatient}
-                    disabled={savingPatient || !diagnosisResult?.patient_name}
+                    disabled={savingPatient || !diagnosisResult?.patient_name?.trim() || !diagnosisResult?.patient_surname?.trim() || !diagnosisResult?.patient_age || !diagnosisResult?.patient_gender || !diagnosisResult?.patient_id?.trim()}
                     className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:transform-none"
                   >
                     {savingPatient ? (
@@ -860,9 +879,24 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                       </>
                     )}
                   </button>
-                </div>
-              ) : (
-                <div className="flex gap-3">
+                  
+                  {/* Keep Anonymous Button */}
+                  <button
+                    onClick={() => {
+                      // Navigate back to patients page without saving patient details
+                      router.push('/patients');
+                    }}
+                    className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200"
+                    title="Complete diagnosis without saving patient details to database"
+                  >
+                    <svg className="w-5 h-5 group-hover:scale-110 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Keep Anonymous
+                  </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-3 lg:flex-nowrap">
                   <button
                     onClick={saveEditing}
                     disabled={loading}
@@ -883,23 +917,39 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                     </svg>
                     Cancel
                   </button>
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
               
-              {/* Validation messages */}
-              {!isEditing && (
-                <>
-                  {/* Validation message for Save Patient button */}
-                  {!diagnosisResult?.patient_name && !patientSaved && (
-                    <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              {/* Export Buttons */}
+              <div className="flex justify-end">
+                <DiagnosisExportDropdown diagnosis={diagnosisResult} />
+              </div>
+            </div>
+          </div>
+          
+          {/* Validation messages - Outside header for better visibility */}
+          <div className="max-w-5xl mx-auto px-4 -mt-4 mb-6">
+            {!isEditing && (
+              <>
+                {/* Validation message for Save Patient button */}
+                {(!diagnosisResult?.patient_name?.trim() || !diagnosisResult?.patient_surname?.trim() || !diagnosisResult?.patient_age || !diagnosisResult?.patient_gender || !diagnosisResult?.patient_id?.trim()) && !patientSaved && (
+                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-xl shadow-sm mb-4">
                       <div className="flex items-start gap-2">
                         <svg className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                         </svg>
                         <div>
-                          <p className="text-sm font-medium text-yellow-800">Patient name required to save patient data</p>
+                          <p className="text-sm font-medium text-yellow-800">Patient details required for saving</p>
                           <p className="text-sm text-yellow-700 mt-1">
-                            Please expand the "Patient Details" section above and add at least a patient name to enable saving patient information to your database.
+                            To save patient information, the following details are mandatory: 
+                            {[
+                              !diagnosisResult?.patient_name?.trim() && 'First Name',
+                              !diagnosisResult?.patient_surname?.trim() && 'Last Name', 
+                              !diagnosisResult?.patient_age && 'Age',
+                              !diagnosisResult?.patient_gender && 'Gender',
+                              !diagnosisResult?.patient_id?.trim() && 'Patient ID'
+                            ].filter(Boolean).join(', ')}. Alternatively, you can keep the patient anonymous and return to the patients page.
                           </p>
                         </div>
                       </div>
@@ -908,7 +958,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
                   {/* Validation message for Record Dispensing button */}
                   {!dispensingRecorded && !recordingDispensing && (!diagnosisResult?.inventory_drugs?.length || diagnosisResult.inventory_drugs.length === 0) && (
-                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl shadow-sm">
                       <div className="flex items-start gap-2">
                         <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -922,16 +972,16 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                       </div>
                     </div>
                   )}
-                </>
-              )}
-            </div>
-            
-            {/* Export Buttons */}
-            <DiagnosisExportDropdown diagnosis={diagnosisResult} />
+              </>
+            )}
           </div>
-          <p className="text-slate-600">
-            {isEditing ? 'Edit the diagnosis details below and save your changes.' : 'AI analysis has been completed for your patient.'}
-          </p>
+          
+          {/* Description */}
+          <div className="max-w-5xl mx-auto px-4 mb-6">
+            <p className="text-slate-600 text-center">
+              {isEditing ? 'Edit the diagnosis details below and save your changes.' : 'AI analysis has been completed for your patient.'}
+            </p>
+          </div>
         </div>
 
         <div className="space-y-8">
@@ -987,23 +1037,25 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                   <span className="font-medium text-blue-800 block mb-2">Demographics:</span>
                   <div className="space-y-2">
                     <div>
-                      <label className="text-xs text-blue-600">Age:</label>
+                      <label className="text-xs text-blue-600">Age: <span className="text-red-500">*</span></label>
                       <input
                         type="number"
                         value={editedDiagnosis?.patient_age || ''}
                         onChange={(e) => updateEditedField('patient_age', e.target.value ? parseInt(e.target.value) : null)}
-                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
-                        placeholder="Age"
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Age (required)"
+                        required
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-blue-600">Gender:</label>
+                      <label className="text-xs text-blue-600">Gender: <span className="text-red-500">*</span></label>
                       <select
                         value={editedDiagnosis?.patient_gender || ''}
                         onChange={(e) => updateEditedField('patient_gender', e.target.value || null)}
-                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
                       >
-                        <option value="">Select gender</option>
+                        <option value="">Select gender (required)</option>
                         <option value="male">Male</option>
                         <option value="female">Female</option>
                         <option value="other">Other</option>
@@ -1017,33 +1069,36 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                   <span className="font-medium text-blue-800 block mb-2">Identity:</span>
                   <div className="space-y-2">
                     <div>
-                      <label className="text-xs text-blue-600">First Name:</label>
+                      <label className="text-xs text-blue-600">First Name: <span className="text-red-500">*</span></label>
                       <input
                         type="text"
                         value={editedDiagnosis?.patient_name || ''}
                         onChange={(e) => updateEditedField('patient_name', e.target.value || null)}
-                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
-                        placeholder="First name"
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="First name (required)"
+                        required
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-blue-600">Last Name:</label>
+                      <label className="text-xs text-blue-600">Last Name: <span className="text-red-500">*</span></label>
                       <input
                         type="text"
                         value={editedDiagnosis?.patient_surname || ''}
                         onChange={(e) => updateEditedField('patient_surname', e.target.value || null)}
-                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
-                        placeholder="Last name"
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Last name (required)"
+                        required
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-blue-600">Patient ID:</label>
+                      <label className="text-xs text-blue-600">Patient ID: <span className="text-red-500">*</span></label>
                       <input
                         type="text"
                         value={editedDiagnosis?.patient_id || ''}
                         onChange={(e) => updateEditedField('patient_id', e.target.value || null)}
-                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm"
-                        placeholder="Patient ID"
+                        className="w-full p-1 border border-blue-300 rounded text-blue-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Patient ID (required)"
+                        required
                       />
                     </div>
                     <div>
