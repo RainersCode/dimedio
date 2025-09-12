@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { DatabaseService, N8nService } from '@/lib/database';
 import { PatientService } from '@/lib/patientService';
@@ -83,6 +83,9 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   
   // Drug dispensing quantities state
   const [drugQuantities, setDrugQuantities] = useState<{[key: string]: number}>({});
+  
+  // Refs for dropdown containers to handle click outside
+  const dropdownRefs = useRef<{[key: string]: HTMLDivElement | null}>({});
   
   // Collapsible sections state
   const [expandedSections, setExpandedSections] = useState({
@@ -400,11 +403,16 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     try {
       setRecordingDispensing(true);
       
-      // Create updated diagnosis with current drug quantities
+      // Use current edited state or fallback to diagnosisResult
+      const currentDiagnosisState = isEditing && editedDiagnosis ? editedDiagnosis : diagnosisResult;
+      console.log('🔍 Using diagnosis state:', { isEditing, hasEditedDiagnosis: !!editedDiagnosis });
       console.log('🔍 Current drugQuantities state:', drugQuantities);
+      console.log('🔍 Current inventory_drugs:', currentDiagnosisState.inventory_drugs);
+      
+      // Create updated diagnosis with current drug quantities from the current state
       const updatedDiagnosisForDispensing = {
-        ...diagnosisResult,
-        inventory_drugs: diagnosisResult.inventory_drugs?.map((drug: any, index: number) => {
+        ...currentDiagnosisState,
+        inventory_drugs: currentDiagnosisState.inventory_drugs?.map((drug: any, index: number) => {
           const currentQuantity = drugQuantities[`inventory_${index}`] || 1;
           console.log(`🔍 Drug ${index} (${drug.drug_name}): using quantity ${currentQuantity} from state`);
           return {
@@ -531,6 +539,16 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     setShowDrugSuggestions(prev => ({ ...prev, [fieldKey]: filtered.length > 0 }));
   };
 
+  const showAllDrugs = (fieldKey: string) => {
+    // Show all drugs in alphabetical order
+    const allDrugsAlphabetically = [...userDrugInventory]
+      .sort((a, b) => a.drug_name.toLowerCase().localeCompare(b.drug_name.toLowerCase()))
+      .slice(0, 50); // Limit to 50 for performance
+
+    setDrugSearchResults(allDrugsAlphabetically);
+    setShowDrugSuggestions(prev => ({ ...prev, [fieldKey]: true }));
+  };
+
   const selectDrug = (drug: UserDrugInventory, field: string, index: number) => {
     // Populate the drug fields from inventory
     updateDrugItem(field, index, 'drug_name', drug.drug_name);
@@ -592,6 +610,22 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       setDispensingRecorded(recordedDispensings.includes(diagnosisResult.id));
     }
   }, [diagnosisResult?.id]);
+  
+  // Handle click outside to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      Object.keys(showDrugSuggestions).forEach(fieldKey => {
+        if (showDrugSuggestions[fieldKey] && dropdownRefs.current[fieldKey] && !dropdownRefs.current[fieldKey]?.contains(event.target as Node)) {
+          setShowDrugSuggestions(prev => ({ ...prev, [fieldKey]: false }));
+        }
+      });
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDrugSuggestions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -672,8 +706,8 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           console.log('🔄 Initiating automatic drug dispensing for diagnosis:', updatedDiagnosis?.id);
           console.log('📋 Available inventory drugs for dispensing:', updatedDiagnosis?.inventory_drugs);
           
-          if (updatedDiagnosis?.inventory_drugs && updatedDiagnosis.inventory_drugs.length > 0) {
-            console.log('✅ Found inventory drugs, proceeding with automatic dispensing...');
+          if (updatedDiagnosis?.inventory_drugs && updatedDiagnosis.inventory_drugs.length > 0 && !isEditing) {
+            console.log('✅ Found inventory drugs and not in editing mode, proceeding with automatic dispensing...');
             setTimeout(async () => {
               try {
                 await recordDrugDispensing(updatedDiagnosis);
@@ -1537,40 +1571,47 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                         </button>
                       </div>
                       <div className="grid md:grid-cols-2 gap-3 text-sm">
-                        <div className="relative">
+                        <div className="relative" ref={(el) => dropdownRefs.current[`inventory_drugs_${index}`] = el}>
                           <label className="font-medium text-green-800 block mb-1">
                             Drug Name: 
                             <span className="text-xs font-normal text-green-600 ml-1">
-                              (type to search your inventory)
+                              (type to search or click dropdown)
                             </span>
                           </label>
-                          <input
-                            type="text"
-                            value={drug.drug_name || ''}
-                            onChange={(e) => {
-                              updateDrugItem('inventory_drugs', index, 'drug_name', e.target.value);
-                              searchDrugs(e.target.value, `inventory_drugs_${index}`);
-                            }}
-                            onFocus={() => {
-                              if (drug.drug_name && drug.drug_name.length >= 2) {
-                                searchDrugs(drug.drug_name, `inventory_drugs_${index}`);
-                              }
-                            }}
-                            onBlur={() => {
-                              // Delay hiding suggestions to allow click
-                              setTimeout(() => {
-                                setShowDrugSuggestions(prev => ({ ...prev, [`inventory_drugs_${index}`]: false }));
-                              }, 200);
-                            }}
-                            className="w-full p-2 border border-green-300 rounded text-green-800"
-                            placeholder="🔍 Type drug name to search your inventory..."
-                          />
+                          <div className="relative flex">
+                            <input
+                              type="text"
+                              value={drug.drug_name || ''}
+                              onChange={(e) => {
+                                updateDrugItem('inventory_drugs', index, 'drug_name', e.target.value);
+                                searchDrugs(e.target.value, `inventory_drugs_${index}`);
+                              }}
+                              onFocus={() => {
+                                if (drug.drug_name && drug.drug_name.length >= 2) {
+                                  searchDrugs(drug.drug_name, `inventory_drugs_${index}`);
+                                }
+                              }}
+                              className="flex-1 p-2 border border-green-300 rounded-l text-green-800"
+                              placeholder="🔍 Type drug name to search your inventory..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() => showAllDrugs(`inventory_drugs_${index}`)}
+                              className="px-3 py-2 bg-green-100 border border-green-300 border-l-0 rounded-r text-green-700 hover:bg-green-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-inset"
+                              title="Show all drugs in alphabetical order"
+                            >
+                              ▼
+                            </button>
+                          </div>
                           {showDrugSuggestions[`inventory_drugs_${index}`] && drugSearchResults.length > 0 && (
                             <div className="absolute top-full left-0 right-0 z-10 bg-white border border-green-300 rounded-b shadow-lg max-h-40 overflow-y-auto">
                               {drugSearchResults.map((inventoryDrug, drugIndex) => (
                                 <div
                                   key={drugIndex}
-                                  onClick={() => selectDrug(inventoryDrug, 'inventory_drugs', index)}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    selectDrug(inventoryDrug, 'inventory_drugs', index);
+                                  }}
                                   className="p-2 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-b-0"
                                 >
                                   <div className="font-medium text-green-900">{inventoryDrug.drug_name}</div>
@@ -1756,40 +1797,47 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                         </button>
                       </div>
                       <div className="grid md:grid-cols-2 gap-3 text-sm">
-                        <div className="relative">
+                        <div className="relative" ref={(el) => dropdownRefs.current[`additional_therapy_${index}`] = el}>
                           <label className="font-medium text-blue-800 block mb-1">
                             Drug Name: 
                             <span className="text-xs font-normal text-blue-600 ml-1">
-                              (type to search your inventory)
+                              (type to search or click dropdown)
                             </span>
                           </label>
-                          <input
-                            type="text"
-                            value={drug.drug_name || ''}
-                            onChange={(e) => {
-                              updateDrugItem('additional_therapy', index, 'drug_name', e.target.value);
-                              searchDrugs(e.target.value, `additional_therapy_${index}`);
-                            }}
-                            onFocus={() => {
-                              if (drug.drug_name && drug.drug_name.length >= 2) {
-                                searchDrugs(drug.drug_name, `additional_therapy_${index}`);
-                              }
-                            }}
-                            onBlur={() => {
-                              // Delay hiding suggestions to allow click
-                              setTimeout(() => {
-                                setShowDrugSuggestions(prev => ({ ...prev, [`additional_therapy_${index}`]: false }));
-                              }, 200);
-                            }}
-                            className="w-full p-2 border border-blue-300 rounded text-blue-800"
-                            placeholder="🔍 Type drug name to search your inventory..."
-                          />
+                          <div className="relative flex">
+                            <input
+                              type="text"
+                              value={drug.drug_name || ''}
+                              onChange={(e) => {
+                                updateDrugItem('additional_therapy', index, 'drug_name', e.target.value);
+                                searchDrugs(e.target.value, `additional_therapy_${index}`);
+                              }}
+                              onFocus={() => {
+                                if (drug.drug_name && drug.drug_name.length >= 2) {
+                                  searchDrugs(drug.drug_name, `additional_therapy_${index}`);
+                                }
+                              }}
+                              className="flex-1 p-2 border border-blue-300 rounded-l text-blue-800"
+                              placeholder="🔍 Type drug name to search your inventory..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() => showAllDrugs(`additional_therapy_${index}`)}
+                              className="px-3 py-2 bg-blue-100 border border-blue-300 border-l-0 rounded-r text-blue-700 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
+                              title="Show all drugs in alphabetical order"
+                            >
+                              ▼
+                            </button>
+                          </div>
                           {showDrugSuggestions[`additional_therapy_${index}`] && drugSearchResults.length > 0 && (
                             <div className="absolute top-full left-0 right-0 z-10 bg-white border border-blue-300 rounded-b shadow-lg max-h-40 overflow-y-auto">
                               {drugSearchResults.map((inventoryDrug, drugIndex) => (
                                 <div
                                   key={drugIndex}
-                                  onClick={() => selectDrug(inventoryDrug, 'additional_therapy', index)}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    selectDrug(inventoryDrug, 'additional_therapy', index);
+                                  }}
                                   className="p-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
                                 >
                                   <div className="font-medium text-blue-900">{inventoryDrug.drug_name}</div>

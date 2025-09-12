@@ -94,6 +94,12 @@ export interface Diagnosis {
   // Timestamps
   created_at: string;
   updated_at: string;
+  
+  // Audit Trail
+  last_edited_by?: string;
+  last_edited_by_email?: string;
+  last_edited_at?: string;
+  edit_location?: string;
 }
 
 export interface DiagnosisHistory {

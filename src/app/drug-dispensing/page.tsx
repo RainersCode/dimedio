@@ -6,7 +6,7 @@ import { PatientService } from '@/lib/patientService';
 import { DatabaseService } from '@/lib/database';
 import { DrugInventoryService } from '@/lib/drugInventory';
 import { UserDrugInventory, PatientProfile } from '@/types/database';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 
 export default function DrugDispensing() {
@@ -18,10 +18,29 @@ export default function DrugDispensing() {
   const [deletedItems, setDeletedItems] = useState<{[recordId: string]: {patientDeleted: boolean, diagnosisDeleted: boolean}}>({});
   
   // Filters
-  const [searchTerm, setSearchTerm] = useState('');
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  
+  // Separate search functionality for each filter type
+  const [drugSearchTerm, setDrugSearchTerm] = useState('');
+  const [patientSearchTerm, setPatientSearchTerm] = useState('');
+  const [diagnosisSearchTerm, setDiagnosisSearchTerm] = useState('');
+  
+  // Dropdown suggestions for each search type
+  const [drugSuggestionsFilter, setDrugSuggestionsFilter] = useState<string[]>([]);
+  const [patientSuggestionsFilter, setPatientSuggestionsFilter] = useState<string[]>([]);
+  const [diagnosisSuggestionsFilter, setDiagnosisSuggestionsFilter] = useState<string[]>([]);
+  
+  // Dropdown visibility states
+  const [showDrugDropdown, setShowDrugDropdown] = useState(false);
+  const [showPatientDropdown, setShowPatientDropdown] = useState(false);
+  const [showDiagnosisDropdown, setShowDiagnosisDropdown] = useState(false);
+  
+  // Refs for dropdown containers to handle click outside
+  const drugDropdownRef = useRef<HTMLDivElement>(null);
+  const patientDropdownRef = useRef<HTMLDivElement>(null);
+  const diagnosisDropdownRef = useRef<HTMLDivElement>(null);
   
   // Manual dispensing form
   const [showManualForm, setShowManualForm] = useState(false);
@@ -40,6 +59,26 @@ export default function DrugDispensing() {
       fetchData();
     }
   }, [user, selectedPeriod]);
+  
+  // Handle click outside to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (drugDropdownRef.current && !drugDropdownRef.current.contains(event.target as Node)) {
+        setShowDrugDropdown(false);
+      }
+      if (patientDropdownRef.current && !patientDropdownRef.current.contains(event.target as Node)) {
+        setShowPatientDropdown(false);
+      }
+      if (diagnosisDropdownRef.current && !diagnosisDropdownRef.current.contains(event.target as Node)) {
+        setShowDiagnosisDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const fetchData = async () => {
     try {
@@ -187,6 +226,147 @@ export default function DrugDispensing() {
     }
   };
 
+  // Drug search functionality with smart filtering
+  const searchDrugsFilter = (searchTerm: string) => {
+    if (!searchTerm.trim() || searchTerm.length < 1) {
+      setDrugSuggestionsFilter([]);
+      setShowDrugDropdown(false);
+      return;
+    }
+
+    const suggestions = new Set<string>();
+    const searchLower = searchTerm.toLowerCase();
+
+    // Filter records based on current patient selection
+    const filteredRecords = patientSearchTerm 
+      ? dispensingHistory.filter(record => 
+          record.patient_name?.toLowerCase().includes(patientSearchTerm.toLowerCase())
+        )
+      : dispensingHistory;
+
+    // Add matching drug names from filtered records
+    filteredRecords.forEach(record => {
+      if (record.drug_name && record.drug_name.toLowerCase().includes(searchLower)) {
+        suggestions.add(record.drug_name);
+      }
+    });
+
+    const suggestionArray = Array.from(suggestions).slice(0, 10);
+    setDrugSuggestionsFilter(suggestionArray);
+    setShowDrugDropdown(suggestionArray.length > 0);
+  };
+
+  const showAllDrugsFilter = () => {
+    const allDrugs = new Set<string>();
+    
+    // Filter records based on current patient selection
+    const filteredRecords = patientSearchTerm 
+      ? dispensingHistory.filter(record => 
+          record.patient_name?.toLowerCase().includes(patientSearchTerm.toLowerCase())
+        )
+      : dispensingHistory;
+    
+    filteredRecords.forEach(record => {
+      if (record.drug_name) allDrugs.add(record.drug_name);
+    });
+
+    const sortedDrugs = Array.from(allDrugs)
+      .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+      .slice(0, 20);
+
+    setDrugSuggestionsFilter(sortedDrugs);
+    setShowDrugDropdown(true);
+  };
+
+  // Patient search functionality
+  const searchPatientsFilter = (searchTerm: string) => {
+    if (!searchTerm.trim() || searchTerm.length < 1) {
+      setPatientSuggestionsFilter([]);
+      setShowPatientDropdown(false);
+      return;
+    }
+
+    const suggestions = new Set<string>();
+    const searchLower = searchTerm.toLowerCase();
+
+    // Add matching patient names
+    dispensingHistory.forEach(record => {
+      if (record.patient_name && record.patient_name.toLowerCase().includes(searchLower)) {
+        suggestions.add(record.patient_name);
+      }
+    });
+
+    const suggestionArray = Array.from(suggestions).slice(0, 10);
+    setPatientSuggestionsFilter(suggestionArray);
+    setShowPatientDropdown(suggestionArray.length > 0);
+  };
+
+  const showAllPatientsFilter = () => {
+    const allPatients = new Set<string>();
+    dispensingHistory.forEach(record => {
+      if (record.patient_name) allPatients.add(record.patient_name);
+    });
+
+    const sortedPatients = Array.from(allPatients)
+      .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+      .slice(0, 20);
+
+    setPatientSuggestionsFilter(sortedPatients);
+    setShowPatientDropdown(true);
+  };
+
+  // Diagnosis search functionality with smart filtering
+  const searchDiagnosisFilter = (searchTerm: string) => {
+    if (!searchTerm.trim() || searchTerm.length < 1) {
+      setDiagnosisSuggestionsFilter([]);
+      setShowDiagnosisDropdown(false);
+      return;
+    }
+
+    const suggestions = new Set<string>();
+    const searchLower = searchTerm.toLowerCase();
+
+    // Filter records based on current patient selection
+    const filteredRecords = patientSearchTerm 
+      ? dispensingHistory.filter(record => 
+          record.patient_name?.toLowerCase().includes(patientSearchTerm.toLowerCase())
+        )
+      : dispensingHistory;
+
+    // Add matching diagnoses from filtered records
+    filteredRecords.forEach(record => {
+      if (record.primary_diagnosis && record.primary_diagnosis.toLowerCase().includes(searchLower)) {
+        suggestions.add(record.primary_diagnosis);
+      }
+    });
+
+    const suggestionArray = Array.from(suggestions).slice(0, 10);
+    setDiagnosisSuggestionsFilter(suggestionArray);
+    setShowDiagnosisDropdown(suggestionArray.length > 0);
+  };
+
+  const showAllDiagnosisFilter = () => {
+    const allDiagnoses = new Set<string>();
+    
+    // Filter records based on current patient selection
+    const filteredRecords = patientSearchTerm 
+      ? dispensingHistory.filter(record => 
+          record.patient_name?.toLowerCase().includes(patientSearchTerm.toLowerCase())
+        )
+      : dispensingHistory;
+    
+    filteredRecords.forEach(record => {
+      if (record.primary_diagnosis) allDiagnoses.add(record.primary_diagnosis);
+    });
+
+    const sortedDiagnoses = Array.from(allDiagnoses)
+      .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+      .slice(0, 20);
+
+    setDiagnosisSuggestionsFilter(sortedDiagnoses);
+    setShowDiagnosisDropdown(true);
+  };
+
   // Handle manual dispensing submission
   const handleManualDispensing = async () => {
     if (!selectedDrug || !selectedPatient || quantity < 1) {
@@ -237,12 +417,16 @@ export default function DrugDispensing() {
   };
 
   const filteredHistory = dispensingHistory.filter(record => {
-    const matchesSearch = !searchTerm || 
-      record.drug_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.patient_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.primary_diagnosis?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesDrug = !drugSearchTerm || 
+      record.drug_name?.toLowerCase().includes(drugSearchTerm.toLowerCase());
+      
+    const matchesPatient = !patientSearchTerm || 
+      record.patient_name?.toLowerCase().includes(patientSearchTerm.toLowerCase());
+      
+    const matchesDiagnosis = !diagnosisSearchTerm || 
+      record.primary_diagnosis?.toLowerCase().includes(diagnosisSearchTerm.toLowerCase());
     
-    return matchesSearch;
+    return matchesDrug && matchesPatient && matchesDiagnosis;
   });
 
   if (!user) {
@@ -569,21 +753,182 @@ export default function DrugDispensing() {
         {/* Filters */}
         <div className="bg-white rounded-xl border border-slate-200 mb-8">
           <div className="p-6 border-b border-slate-200">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Filters & Search</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Search</label>
-                <input 
-                  type="text"
-                  placeholder="Drug, patient, or diagnosis..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                />
+            <h2 className="text-lg font-semibold text-slate-900 mb-6">Filters & Search</h2>
+            
+            {/* Search Filters Row */}
+            <div className="mb-6">
+              <h3 className="text-sm font-medium text-slate-700 mb-3">Search Filters</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6" style={{minHeight: '80px'}}>
+              {/* Drug Search */}
+              <div className="relative mb-4 md:mb-0" ref={drugDropdownRef}>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Drug</label>
+                <div className="relative flex">
+                  <input 
+                    type="text"
+                    placeholder="Search drugs..."
+                    value={drugSearchTerm}
+                    onChange={(e) => {
+                      setDrugSearchTerm(e.target.value);
+                      searchDrugsFilter(e.target.value);
+                    }}
+                    onFocus={() => {
+                      if (drugSearchTerm && drugSearchTerm.length >= 1) {
+                        searchDrugsFilter(drugSearchTerm);
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-l-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                  <button
+                    type="button"
+                    onClick={showAllDrugsFilter}
+                    className="px-3 py-2 bg-slate-100 border border-slate-300 border-l-0 rounded-r-lg text-slate-700 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-inset"
+                    title="Show all drugs"
+                  >
+                    ▼
+                  </button>
+                </div>
+                {showDrugDropdown && drugSuggestionsFilter.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 z-30 bg-white border border-slate-300 rounded-b-lg shadow-lg max-h-40 overflow-y-auto mt-1">
+                    {drugSuggestionsFilter.map((suggestion, index) => (
+                      <div
+                        key={index}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setDrugSearchTerm(suggestion);
+                          setDrugSuggestionsFilter([]);
+                          setShowDrugDropdown(false);
+                        }}
+                        className="px-3 py-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0"
+                      >
+                        <div className="font-medium text-slate-900">{suggestion}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Period</label>
+
+              {/* Patient Search */}
+              <div className="relative mb-4 md:mb-0" ref={patientDropdownRef}>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Patient</label>
+                <div className="relative flex">
+                  <input 
+                    type="text"
+                    placeholder="Search patients..."
+                    value={patientSearchTerm}
+                    onChange={(e) => {
+                      const newValue = e.target.value;
+                      setPatientSearchTerm(newValue);
+                      searchPatientsFilter(newValue);
+                      
+                      // Clear drug and diagnosis when patient search changes
+                      if (drugSearchTerm || diagnosisSearchTerm) {
+                        setDrugSearchTerm('');
+                        setDiagnosisSearchTerm('');
+                        setDrugSuggestionsFilter([]);
+                        setDiagnosisSuggestionsFilter([]);
+                        setShowDrugDropdown(false);
+                        setShowDiagnosisDropdown(false);
+                      }
+                    }}
+                    onFocus={() => {
+                      if (patientSearchTerm && patientSearchTerm.length >= 1) {
+                        searchPatientsFilter(patientSearchTerm);
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-l-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                  <button
+                    type="button"
+                    onClick={showAllPatientsFilter}
+                    className="px-3 py-2 bg-slate-100 border border-slate-300 border-l-0 rounded-r-lg text-slate-700 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-inset"
+                    title="Show all patients"
+                  >
+                    ▼
+                  </button>
+                </div>
+                {showPatientDropdown && patientSuggestionsFilter.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 z-30 bg-white border border-slate-300 rounded-b-lg shadow-lg max-h-40 overflow-y-auto mt-1">
+                    {patientSuggestionsFilter.map((suggestion, index) => (
+                      <div
+                        key={index}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setPatientSearchTerm(suggestion);
+                          setPatientSuggestionsFilter([]);
+                          setShowPatientDropdown(false);
+                          // Clear and refresh drug/diagnosis suggestions when patient changes
+                          setDrugSearchTerm('');
+                          setDiagnosisSearchTerm('');
+                          setDrugSuggestionsFilter([]);
+                          setDiagnosisSuggestionsFilter([]);
+                          setShowDrugDropdown(false);
+                          setShowDiagnosisDropdown(false);
+                        }}
+                        className="px-3 py-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0"
+                      >
+                        <div className="font-medium text-slate-900">{suggestion}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Diagnosis Search */}
+              <div className="relative mb-4 md:mb-0" ref={diagnosisDropdownRef}>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Diagnosis</label>
+                <div className="relative flex">
+                  <input 
+                    type="text"
+                    placeholder="Search diagnoses..."
+                    value={diagnosisSearchTerm}
+                    onChange={(e) => {
+                      setDiagnosisSearchTerm(e.target.value);
+                      searchDiagnosisFilter(e.target.value);
+                    }}
+                    onFocus={() => {
+                      if (diagnosisSearchTerm && diagnosisSearchTerm.length >= 1) {
+                        searchDiagnosisFilter(diagnosisSearchTerm);
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-l-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                  <button
+                    type="button"
+                    onClick={showAllDiagnosisFilter}
+                    className="px-3 py-2 bg-slate-100 border border-slate-300 border-l-0 rounded-r-lg text-slate-700 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-inset"
+                    title="Show all diagnoses"
+                  >
+                    ▼
+                  </button>
+                </div>
+                {showDiagnosisDropdown && diagnosisSuggestionsFilter.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 z-30 bg-white border border-slate-300 rounded-b-lg shadow-lg max-h-40 overflow-y-auto mt-1">
+                    {diagnosisSuggestionsFilter.map((suggestion, index) => (
+                      <div
+                        key={index}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setDiagnosisSearchTerm(suggestion);
+                          setDiagnosisSuggestionsFilter([]);
+                          setShowDiagnosisDropdown(false);
+                        }}
+                        className="px-3 py-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0"
+                      >
+                        <div className="font-medium text-slate-900">{suggestion}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              </div>
+            </div>
+            
+            {/* Date Filters Row */}
+            <div className="mb-0">
+              <h3 className="text-sm font-medium text-slate-700 mb-3">Date Filters</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="mb-4 md:mb-0">
+                <label className="block text-sm font-medium text-slate-700 mb-2">Period</label>
                 <select
                   value={selectedPeriod}
                   onChange={(e) => setSelectedPeriod(e.target.value as any)}
@@ -596,8 +941,8 @@ export default function DrugDispensing() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">From Date</label>
+              <div className="mb-4 md:mb-0">
+                <label className="block text-sm font-medium text-slate-700 mb-2">From Date</label>
                 <input 
                   type="date"
                   value={dateFrom}
@@ -606,8 +951,8 @@ export default function DrugDispensing() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">To Date</label>
+              <div className="mb-4 md:mb-0">
+                <label className="block text-sm font-medium text-slate-700 mb-2">To Date</label>
                 <input 
                   type="date"
                   value={dateTo}
@@ -615,9 +960,10 @@ export default function DrugDispensing() {
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 />
               </div>
+              </div>
             </div>
             
-            <div className="mt-4 flex gap-2">
+            <div className="mt-6 flex gap-2">
               <button 
                 onClick={handleFilterChange}
                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
@@ -628,7 +974,15 @@ export default function DrugDispensing() {
                 onClick={() => {
                   setDateFrom('');
                   setDateTo('');
-                  setSearchTerm('');
+                  setDrugSearchTerm('');
+                  setPatientSearchTerm('');
+                  setDiagnosisSearchTerm('');
+                  setDrugSuggestionsFilter([]);
+                  setPatientSuggestionsFilter([]);
+                  setDiagnosisSuggestionsFilter([]);
+                  setShowDrugDropdown(false);
+                  setShowPatientDropdown(false);
+                  setShowDiagnosisDropdown(false);
                   fetchData();
                 }}
                 className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
@@ -895,7 +1249,15 @@ export default function DrugDispensing() {
             <div className="flex items-center justify-between">
               <p className="text-sm text-slate-600">
                 Showing {filteredHistory.length} records
-                {searchTerm && ` (filtered by "${searchTerm}")`}
+                {(drugSearchTerm || patientSearchTerm || diagnosisSearchTerm) && (
+                  <span>
+                    {' '}(filtered by:
+                    {drugSearchTerm && ` Drug: "${drugSearchTerm}"`}
+                    {patientSearchTerm && ` Patient: "${patientSearchTerm}"`}
+                    {diagnosisSearchTerm && ` Diagnosis: "${diagnosisSearchTerm}"`}
+                    )
+                  </span>
+                )}
               </p>
               <button 
                 onClick={fetchData}
