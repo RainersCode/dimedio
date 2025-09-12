@@ -221,7 +221,13 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     }
   };
 
+  // DISABLED: recordDrugDispensing function - drugs will be dispensed manually from patient cards
   const recordDrugDispensing = async (diagnosis: any) => {
+    console.log('⚠️ recordDrugDispensing called but automatic dispensing is disabled');
+    return; // Early return to prevent any dispensing
+    
+    // Original function commented out below:
+    /*
     console.log('🩺 Starting drug dispensing process for diagnosis:', diagnosis?.id);
     console.log('🔍 Checking diagnosis object:', { 
       hasId: !!diagnosis?.id, 
@@ -395,9 +401,16 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       console.error('❌ Error in drug dispensing process:', err);
       console.error('🔍 Full error details:', err);
     }
+    */
   };
 
+  // DISABLED: manuallyRecordDispensing function - drugs will be dispensed manually from patient cards
   const manuallyRecordDispensing = async () => {
+    console.log('⚠️ manuallyRecordDispensing called but automatic dispensing is disabled');
+    return; // Early return to prevent any dispensing
+    
+    // Original function commented out:
+    /*
     if (!diagnosisResult) return;
 
     try {
@@ -437,6 +450,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     } finally {
       setRecordingDispensing(false);
     }
+    */
   };
 
 
@@ -510,6 +524,32 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     }));
   };
 
+  // Helper function to find matching inventory drug (same logic as in individual dispensing)
+  const findMatchingInventoryDrug = (drugName: string) => {
+    return userDrugInventory?.find(invDrug => {
+      const normalizeName = (name: string) => name?.toLowerCase().replace(/\s+/g, ' ').trim() || '';
+      const normalizeForMatching = (name: string) => {
+        return normalizeName(name)
+          .replace(/\s+n\d+.*$/i, '') // Remove package size (N12, N14, etc.)
+          .replace(/\s+(tabletes?|kapsulas?|ml|mg|g)\b/gi, '') // Remove common units
+          .replace(/\s+mutē\s+disperģējamās/gi, '') // Remove specific Latvian terms
+          .replace(/\s+apvalkotās/gi, '')
+          .replace(/\bmg\/\d+\s*mg\b/gi, 'mg') // Normalize dosage like "500 mg/125 mg" to "500mg"
+          .replace(/\s+/g, ' ').trim();
+      };
+      
+      const invDrugNormalized = normalizeForMatching(invDrug.drug_name);
+      const diagnosisDrugNormalized = normalizeForMatching(drugName);
+      
+      return (
+        normalizeName(invDrug.drug_name) === normalizeName(drugName) ||
+        invDrugNormalized === diagnosisDrugNormalized ||
+        (invDrugNormalized.includes(diagnosisDrugNormalized) && diagnosisDrugNormalized.length > 5) ||
+        (diagnosisDrugNormalized.includes(invDrugNormalized) && invDrugNormalized.length > 5)
+      );
+    });
+  };
+
   // Drug search and autocomplete functions
   const fetchUserDrugInventory = async () => {
     try {
@@ -561,12 +601,12 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     setShowDrugSuggestions(prev => ({ ...prev, [`${field}_${index}`]: false }));
   };
 
-  // Load drug inventory when editing starts
+  // Load drug inventory when editing starts or when diagnosis is completed
   useEffect(() => {
-    if (isEditing && userDrugInventory.length === 0) {
+    if ((isEditing || diagnosisResult) && userDrugInventory.length === 0) {
       fetchUserDrugInventory();
     }
-  }, [isEditing]);
+  }, [isEditing, diagnosisResult]);
 
   // Initialize drug quantities when diagnosis result is set
   useEffect(() => {
@@ -701,24 +741,8 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           console.log('Drug suggestions in result:', updatedDiagnosis?.drug_suggestions);
           setDiagnosisResult(updatedDiagnosis);
           
-          // Record drug dispensing for inventory drugs (background operation)
-          // Enhanced automatic dispensing with better error handling
-          console.log('🔄 Initiating automatic drug dispensing for diagnosis:', updatedDiagnosis?.id);
-          console.log('📋 Available inventory drugs for dispensing:', updatedDiagnosis?.inventory_drugs);
-          
-          if (updatedDiagnosis?.inventory_drugs && updatedDiagnosis.inventory_drugs.length > 0 && !isEditing) {
-            console.log('✅ Found inventory drugs and not in editing mode, proceeding with automatic dispensing...');
-            setTimeout(async () => {
-              try {
-                await recordDrugDispensing(updatedDiagnosis);
-                console.log('✅ Automatic dispensing completed successfully');
-              } catch (error) {
-                console.error('❌ Automatic dispensing failed:', error);
-              }
-            }, 1500); // Increased delay to ensure better timing
-          } else {
-            console.log('ℹ️ No inventory drugs found for automatic dispensing');
-          }
+          // Automatic drug dispensing disabled - drugs will be dispensed manually from patient cards
+          console.log('ℹ️ Automatic dispensing disabled - drugs can be dispensed manually from patient cards');
         }
       }
 
@@ -767,23 +791,42 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
   if (diagnosisResult) {
     return (
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-        <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div className="flex flex-col items-center gap-4 mb-4">
-            <div className="flex items-center gap-4">
-              <h2 className="text-2xl font-semibold text-slate-900">Diagnosis Complete</h2>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <div className="max-w-5xl mx-auto px-4 py-8">
+          {/* Modern Header */}
+          <div className="relative bg-white rounded-3xl shadow-xl border border-white/50 backdrop-blur-sm p-8 mb-8 overflow-hidden">
+            {/* Background Pattern */}
+            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-blue-500/5 to-purple-500/5"></div>
+            <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-emerald-100/30 to-transparent rounded-full transform translate-x-32 -translate-y-32"></div>
+            
+            <div className="relative flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                <div className="relative">
+                  <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl flex items-center justify-center shadow-2xl transform rotate-3">
+                    <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="absolute -top-1 -right-1 w-6 h-6 bg-emerald-400 rounded-full flex items-center justify-center">
+                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                </div>
+                <div>
+                  <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 bg-clip-text text-transparent">
+                    Diagnosis Complete
+                  </h1>
+                  <p className="text-slate-500 mt-2 text-lg">AI analysis completed successfully</p>
+                </div>
+              </div>
               {!isEditing ? (
-                <div className="flex gap-2">
+                <div className="flex gap-3">
                   <button
                     onClick={startEditing}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                    className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 group-hover:rotate-12 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                     </svg>
                     Edit Diagnosis
@@ -791,11 +834,11 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                   <button
                     onClick={savePatient}
                     disabled={savingPatient || !diagnosisResult?.patient_name}
-                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:transform-none"
                   >
                     {savingPatient ? (
                       <>
-                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
@@ -803,58 +846,29 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                       </>
                     ) : patientSaved ? (
                       <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 group-hover:scale-110 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                         Patient Saved!
                       </>
                     ) : (
                       <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 group-hover:scale-110 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                         </svg>
                         Save Patient
                       </>
                     )}
                   </button>
-                  <button
-                    onClick={manuallyRecordDispensing}
-                    disabled={recordingDispensing || dispensingRecorded || !diagnosisResult?.inventory_drugs?.length}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {recordingDispensing ? (
-                      <>
-                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Recording...
-                      </>
-                    ) : dispensingRecorded ? (
-                      <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        Recorded!
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                        </svg>
-                        Record Dispensing
-                      </>
-                    )}
-                  </button>
                 </div>
               ) : (
-                <div className="flex gap-2">
+                <div className="flex gap-3">
                   <button
                     onClick={saveEditing}
                     disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                    className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 group-hover:scale-110 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                     Save Changes
@@ -862,9 +876,9 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                   <button
                     onClick={cancelEditing}
                     disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+                    className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 group-hover:rotate-90 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                     Cancel
@@ -920,11 +934,18 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           </p>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-8">
           {/* Patient History (AI Improved) */}
           {(diagnosisResult.improved_patient_history || isEditing) && (
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-              <h3 className="font-semibold text-slate-900 mb-2">📋 Patient History</h3>
+            <div className="bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100 border border-slate-200/60 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-gradient-to-br from-slate-600 to-slate-700 rounded-xl flex items-center justify-center">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-slate-800">Patient History</h3>
+              </div>
               {isEditing ? (
                 <div>
                   <textarea
@@ -950,8 +971,15 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           )}
 
           {/* Patient Information Summary */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h3 className="font-semibold text-blue-900 mb-3">👤 Patient Information</h3>
+          <div className="bg-gradient-to-br from-blue-50 via-indigo-50 to-blue-100 border border-blue-200/60 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-blue-900">Patient Information</h3>
+            </div>
             {isEditing ? (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
                 {/* Demographics */}
@@ -1419,8 +1447,15 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           )}
 
           {/* Primary Diagnosis */}
-          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
-            <h3 className="font-semibold text-emerald-900 mb-2">Primary Diagnosis</h3>
+          <div className="bg-gradient-to-br from-emerald-50 via-green-50 to-emerald-100 border border-emerald-200/60 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-gradient-to-br from-emerald-600 to-green-700 rounded-xl flex items-center justify-center">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-emerald-900">Primary Diagnosis</h3>
+            </div>
             {isEditing ? (
               <textarea
                 value={editedDiagnosis?.primary_diagnosis || ''}
@@ -1435,8 +1470,15 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
           {/* Differential Diagnoses */}
           {((diagnosisResult.differential_diagnoses && diagnosisResult.differential_diagnoses.length > 0) || isEditing) && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h3 className="font-semibold text-blue-900 mb-2">Differential Diagnoses</h3>
+            <div className="bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-100 border border-blue-200/60 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-cyan-700 rounded-xl flex items-center justify-center">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-blue-900">Differential Diagnoses</h3>
+              </div>
               {isEditing ? (
                 <div className="space-y-2">
                   {editedDiagnosis?.differential_diagnoses?.map((diagnosis: string, index: number) => (
@@ -1555,18 +1597,35 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
           {/* Inventory Drug Recommendations */}
           {((diagnosisResult.inventory_drugs && diagnosisResult.inventory_drugs.length > 0) || isEditing) && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <h3 className="font-semibold text-green-900 mb-3">🏥 Available from Your Inventory</h3>
+            <div className="bg-gradient-to-br from-green-50 via-emerald-50 to-green-100 border border-green-200/60 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 bg-gradient-to-br from-green-600 to-emerald-700 rounded-xl flex items-center justify-center">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-green-900">Available from Your Inventory</h3>
+              </div>
               {isEditing ? (
                 <div className="space-y-3">
                   {editedDiagnosis?.inventory_drugs?.map((drug: any, index: number) => (
-                    <div key={index} className="bg-white rounded-lg border border-green-200 p-4">
-                      <div className="flex justify-between items-start mb-3">
-                        <h4 className="font-medium text-green-900">Drug #{index + 1}</h4>
+                    <div key={index} className="bg-white/80 backdrop-blur-sm rounded-xl border border-green-300/40 p-6 shadow-sm hover:shadow-lg hover:border-green-400/60 transition-all duration-200">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
+                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                            </svg>
+                          </div>
+                          <h4 className="text-lg font-semibold text-green-900">Drug #{index + 1}</h4>
+                        </div>
                         <button
                           onClick={() => removeDrugItem('inventory_drugs', index)}
-                          className="px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                          className="group flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-medium rounded-lg shadow-sm hover:shadow-md transform hover:-translate-y-0.5 transition-all duration-200"
                         >
+                          <svg className="w-4 h-4 group-hover:rotate-90 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
                           Remove
                         </button>
                       </div>
@@ -1715,11 +1774,19 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
               ) : (
                 <div className="space-y-3">
                   {diagnosisResult.inventory_drugs?.map((drug: any, index: number) => {
-                    // Find matching inventory drug to get stock quantity
-                    const inventoryDrug = userDrugInventory?.find(invDrug => 
-                      invDrug.drug_name.toLowerCase().trim() === drug.drug_name.toLowerCase().trim()
-                    );
+                    // Find matching inventory drug using improved matching logic
+                    const inventoryDrug = findMatchingInventoryDrug(drug.drug_name);
                     const availableStock = inventoryDrug?.stock_quantity || 0;
+                    
+                    // Debug logging for troubleshooting
+                    if (process.env.NODE_ENV === 'development') {
+                      console.log(`🔍 Drug matching for "${drug.drug_name}":`, {
+                        found: !!inventoryDrug,
+                        inventoryName: inventoryDrug?.drug_name,
+                        availableStock: availableStock,
+                        totalInventoryItems: userDrugInventory?.length || 0
+                      });
+                    }
                     
                     return (
                       <div key={index} className="bg-white rounded-lg border border-green-200 p-3">
@@ -1781,18 +1848,35 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
           {/* Additional External Therapy */}
           {((diagnosisResult.additional_therapy && diagnosisResult.additional_therapy.length > 0) || isEditing) && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h3 className="font-semibold text-blue-900 mb-3">💊 Additional Recommended Therapy</h3>
+            <div className="bg-gradient-to-br from-blue-50 via-indigo-50 to-blue-100 border border-blue-200/60 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-blue-900">Additional Recommended Therapy</h3>
+              </div>
               {isEditing ? (
                 <div className="space-y-3">
                   {editedDiagnosis?.additional_therapy?.map((drug: any, index: number) => (
-                    <div key={index} className="bg-white rounded-lg border border-blue-200 p-4">
-                      <div className="flex justify-between items-start mb-3">
-                        <h4 className="font-medium text-blue-900">Therapy #{index + 1}</h4>
+                    <div key={index} className="bg-white/80 backdrop-blur-sm rounded-xl border border-blue-300/40 p-6 shadow-sm hover:shadow-lg hover:border-blue-400/60 transition-all duration-200">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
+                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                            </svg>
+                          </div>
+                          <h4 className="text-lg font-semibold text-blue-900">Therapy #{index + 1}</h4>
+                        </div>
                         <button
                           onClick={() => removeDrugItem('additional_therapy', index)}
-                          className="px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                          className="group flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-medium rounded-lg shadow-sm hover:shadow-md transform hover:-translate-y-0.5 transition-all duration-200"
                         >
+                          <svg className="w-4 h-4 group-hover:rotate-90 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
                           Remove
                         </button>
                       </div>
@@ -2029,17 +2113,6 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         </div>
 
 
-        <div className="mt-8 flex justify-center">
-          <button
-            onClick={() => {
-              setDiagnosisResult(null);
-              setFormData({ complaint: '', patient_age: undefined, patient_gender: '', symptoms: '' });
-            }}
-            className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
-          >
-            Create New Diagnosis
-          </button>
-        </div>
       </div>
     );
   }

@@ -90,93 +90,75 @@ export default function DiagnosisExportButtons({ diagnosis, className = '' }: Di
   );
 }
 
-// Also export a simple dropdown version
+// Ultra-simple button group that definitely works
 export function DiagnosisExportDropdown({ diagnosis, className = '' }: DiagnosisExportButtonsProps) {
-  const [isOpen, setIsOpen] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
 
-  const handleExport = async (format: 'excel' | 'pdf' | 'word') => {
-    setExporting(format);
-    setIsOpen(false);
-    
-    try {
-      switch (format) {
-        case 'excel':
-          DiagnosisExportService.exportToExcel(diagnosis);
-          break;
-        case 'pdf':
-          DiagnosisExportService.exportToPDF(diagnosis);
-          break;
-        case 'word':
-          DiagnosisExportService.exportToWord(diagnosis);
-          break;
-      }
-    } catch (error) {
-      console.error(`Error exporting to ${format}:`, error);
-    } finally {
-      setExporting(null);
-    }
-  };
-
   return (
-    <div className={`relative inline-block text-left ${className}`}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="inline-flex items-center px-4 py-2 bg-slate-600 text-white text-sm font-medium rounded-lg hover:bg-slate-700 transition-colors"
-        disabled={!!exporting}
-      >
-        {exporting ? (
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-        ) : (
-          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-        )}
-        Export Report
-        <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+    <div className={`relative z-50 ${className}`} style={{ pointerEvents: 'auto' }}>
+      <div className="flex gap-2 items-center">
+        <span className="text-sm text-slate-600 mr-2">Export:</span>
+        
+        <button
+          onMouseDown={() => {
+            console.log('PDF button clicked');
+            setExporting('pdf');
+            try {
+              DiagnosisExportService.exportToPDF(diagnosis);
+              console.log('PDF export initiated');
+            } catch (error) {
+              console.error('PDF export error:', error);
+            } finally {
+              setTimeout(() => setExporting(null), 1000);
+            }
+          }}
+          disabled={!!exporting}
+          className="px-2 py-1 text-xs bg-white hover:bg-red-50 text-red-600 hover:text-red-700 border border-red-300 hover:border-red-400 rounded cursor-pointer disabled:opacity-50"
+          style={{ pointerEvents: 'auto', zIndex: 100 }}
+        >
+          {exporting === 'pdf' ? '⏳' : '📄'} PDF
+        </button>
 
-      {isOpen && (
-        <>
-          <div 
-            className="fixed inset-0 z-10" 
-            onClick={() => setIsOpen(false)}
-          ></div>
-          <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5">
-            <div className="py-1">
-              <button
-                onClick={() => handleExport('pdf')}
-                className="group flex w-full items-center px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
-              >
-                <svg className="w-4 h-4 mr-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-                Export as PDF
-              </button>
-              <button
-                onClick={() => handleExport('excel')}
-                className="group flex w-full items-center px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
-              >
-                <svg className="w-4 h-4 mr-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Export as Excel
-              </button>
-              <button
-                onClick={() => handleExport('word')}
-                className="group flex w-full items-center px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
-              >
-                <svg className="w-4 h-4 mr-3 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Export as Word
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+        <button
+          onMouseDown={() => {
+            console.log('Excel button clicked');
+            setExporting('excel');
+            try {
+              DiagnosisExportService.exportToExcel(diagnosis);
+              console.log('Excel export initiated');
+            } catch (error) {
+              console.error('Excel export error:', error);
+            } finally {
+              setTimeout(() => setExporting(null), 1000);
+            }
+          }}
+          disabled={!!exporting}
+          className="px-2 py-1 text-xs bg-white hover:bg-green-50 text-green-600 hover:text-green-700 border border-green-300 hover:border-green-400 rounded cursor-pointer disabled:opacity-50"
+          style={{ pointerEvents: 'auto', zIndex: 100 }}
+        >
+          {exporting === 'excel' ? '⏳' : '📊'} Excel
+        </button>
+
+        <button
+          onMouseDown={() => {
+            console.log('Word button clicked');
+            setExporting('word');
+            try {
+              DiagnosisExportService.exportToWord(diagnosis);
+              console.log('Word export initiated');
+            } catch (error) {
+              console.error('Word export error:', error);
+            } finally {
+              setTimeout(() => setExporting(null), 1000);
+            }
+          }}
+          disabled={!!exporting}
+          className="px-2 py-1 text-xs bg-white hover:bg-blue-50 text-blue-600 hover:text-blue-700 border border-blue-300 hover:border-blue-400 rounded cursor-pointer disabled:opacity-50"
+          style={{ pointerEvents: 'auto', zIndex: 100 }}
+        >
+          {exporting === 'word' ? '⏳' : '📝'} Word
+        </button>
+      </div>
     </div>
   );
 }

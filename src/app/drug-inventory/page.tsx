@@ -29,7 +29,7 @@ export default function DrugInventoryRoute() {
   return (
     <div className="min-h-screen bg-slate-50">
       <Navigation />
-      <DrugInventoryPage />
+      <DrugInventoryPage />\\
     </div>
   );
 }

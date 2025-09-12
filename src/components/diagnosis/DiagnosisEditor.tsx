@@ -23,6 +23,7 @@ export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: Diagnos
   const [drugQuantities, setDrugQuantities] = useState<{[key: string]: number}>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [showDrugDropdown, setShowDrugDropdown] = useState(false);
+  const [individuallyDispensed, setIndividuallyDispensed] = useState<{[key: string]: boolean}>({});
   
   // Refs for click outside detection
   const drugSearchRef = useRef<HTMLDivElement>(null);
@@ -61,6 +62,23 @@ export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: Diagnos
     
     initializeQuantities();
   }, [editedDiagnosis.inventory_drugs]);
+
+  // Load individually dispensed drugs status
+  useEffect(() => {
+    const individualDispensed = JSON.parse(localStorage.getItem('individualDrugDispensed') || '[]');
+    const dispensedStatus: {[key: string]: boolean} = {};
+    
+    if (editedDiagnosis.inventory_drugs) {
+      editedDiagnosis.inventory_drugs.forEach((drug: any, index: number) => {
+        const drugKey = `${diagnosis.id}-${index}`;
+        if (individualDispensed.includes(drugKey)) {
+          dispensedStatus[drug.drug_name] = true;
+        }
+      });
+    }
+    
+    setIndividuallyDispensed(dispensedStatus);
+  }, [diagnosis.id, editedDiagnosis.inventory_drugs]);
 
   // Handle click outside to close dropdown
   useEffect(() => {
@@ -508,14 +526,28 @@ export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: Diagnos
                             <div>
                               <span className="font-medium text-emerald-700">Quantity to Dispense:</span>
                               <div className="flex items-center gap-2 mt-1">
-                                <input
-                                  type="number"
-                                  min="1"
-                                  value={drugQuantities[drug.drug_name] || 1}
-                                  onChange={(e) => updateDrugQuantity(drug.drug_name, parseInt(e.target.value) || 1)}
-                                  className="w-20 px-2 py-1 border border-emerald-300 rounded focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                                />
-                                <span className="text-emerald-600 text-xs">units</span>
+                                {individuallyDispensed[drug.drug_name] ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-20 px-2 py-1 bg-gray-100 border border-gray-300 rounded text-gray-700 text-center">
+                                      {drugQuantities[drug.drug_name] || 1}
+                                    </span>
+                                    <span className="text-emerald-600 text-xs">units</span>
+                                    <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full">
+                                      ✓ Dispensed
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={drugQuantities[drug.drug_name] || 1}
+                                      onChange={(e) => updateDrugQuantity(drug.drug_name, parseInt(e.target.value) || 1)}
+                                      className="w-20 px-2 py-1 border border-emerald-300 rounded focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                    />
+                                    <span className="text-emerald-600 text-xs">units</span>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -523,7 +555,13 @@ export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: Diagnos
                         
                         <button
                           onClick={() => removeDrugFromInventory(drug.drug_name)}
-                          className="ml-4 text-red-600 hover:text-red-800 text-sm font-medium"
+                          disabled={individuallyDispensed[drug.drug_name]}
+                          className={`ml-4 text-sm font-medium ${
+                            individuallyDispensed[drug.drug_name] 
+                              ? 'text-gray-400 cursor-not-allowed' 
+                              : 'text-red-600 hover:text-red-800'
+                          }`}
+                          title={individuallyDispensed[drug.drug_name] ? 'Cannot remove dispensed drug' : 'Remove drug'}
                         >
                           Remove
                         </button>

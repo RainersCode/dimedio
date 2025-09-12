@@ -74,13 +74,14 @@ export class DrugDispensingService {
       quantity: number;
       notes?: string;
     }>,
-    diagnosisId: string,
+    diagnosisId: string | null,
     patientInfo: {
       patient_name?: string;
       patient_age?: number;
       patient_gender?: string;
       primary_diagnosis?: string;
-    }
+    },
+    skipDuplicateCheck: boolean = false
   ): Promise<{ data: DrugUsageHistory[] | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
@@ -143,8 +144,8 @@ export class DrugDispensingService {
       }
     }
 
-    // Check for duplicates if diagnosisId is provided (do this even if no new drugs to record)
-    if (diagnosisId) {
+    // Check for duplicates if diagnosisId is provided and skipDuplicateCheck is false
+    if (diagnosisId && !skipDuplicateCheck) {
       console.log('🔍 Checking for existing dispensing records for diagnosis:', diagnosisId);
       const { data: existingRecords, error: checkError } = await supabase
         .from('drug_usage_history')

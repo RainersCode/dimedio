@@ -244,10 +244,10 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Trigger to update stock after drug usage
-CREATE TRIGGER trigger_update_drug_stock
-    AFTER INSERT ON drug_usage_history
-    FOR EACH ROW EXECUTE FUNCTION update_drug_stock_after_usage();
+-- Trigger to update stock after drug usage (DISABLED - Manual inventory management)
+-- CREATE TRIGGER trigger_update_drug_stock
+--     AFTER INSERT ON drug_usage_history
+--     FOR EACH ROW EXECUTE FUNCTION update_drug_stock_after_usage();
 
 -- =====================================================
 -- SAMPLE DRUG CATEGORIES
