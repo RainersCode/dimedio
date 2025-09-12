@@ -143,11 +143,7 @@ export class DrugDispensingService {
       }
     }
 
-    if (processedDispensings.length === 0) {
-      return { data: null, error: 'No valid drugs to record' };
-    }
-
-    // Check for duplicates if diagnosisId is provided
+    // Check for duplicates if diagnosisId is provided (do this even if no new drugs to record)
     if (diagnosisId) {
       console.log('🔍 Checking for existing dispensing records for diagnosis:', diagnosisId);
       const { data: existingRecords, error: checkError } = await supabase
@@ -176,17 +172,24 @@ export class DrugDispensingService {
       }
     }
 
-    const { data, error } = await supabase
-      .from('drug_usage_history')
-      .insert(processedDispensings)
-      .select();
+    // Only insert if we have records to insert
+    if (processedDispensings.length > 0) {
+      const { data, error } = await supabase
+        .from('drug_usage_history')
+        .insert(processedDispensings)
+        .select();
 
-    if (error) {
-      console.error('Error recording multiple drug dispensings:', error);
-      return { data: null, error: error.message };
+      if (error) {
+        console.error('Error recording multiple drug dispensings:', error);
+        return { data: null, error: error.message };
+      }
+
+      return { data, error: null };
+    } else {
+      // No new records to insert, but deletion was successful
+      console.log('✅ No new dispensing records to insert (deletion only)');
+      return { data: [], error: null };
     }
-
-    return { data, error: null };
   }
 
   // Get dispensing history with drug and patient details
