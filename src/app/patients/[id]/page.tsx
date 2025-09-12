@@ -11,6 +11,7 @@ import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { DiagnosisExportDropdown } from '@/components/diagnosis/DiagnosisExportButtons';
+import DiagnosisEditor from '@/components/diagnosis/DiagnosisEditor';
 
 interface PatientDetailsProps {
   params: { id: string };
@@ -29,6 +30,7 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [deletingAllDiagnoses, setDeletingAllDiagnoses] = useState(false);
+  const [editingDiagnosis, setEditingDiagnosis] = useState<Diagnosis | null>(null);
 
   useEffect(() => {
     if (user && params.id) {
@@ -328,6 +330,30 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
     }
   };
 
+  const handleEditDiagnosis = (diagnosis: Diagnosis) => {
+    setEditingDiagnosis(diagnosis);
+  };
+
+  const handleDiagnosisEditSave = (updatedDiagnosis: Diagnosis) => {
+    // Update the diagnosis in the local state
+    setPatient(prev => {
+      if (!prev) return prev;
+      
+      return {
+        ...prev,
+        diagnoses: prev.diagnoses.map(d => 
+          d.id === updatedDiagnosis.id ? updatedDiagnosis : d
+        )
+      };
+    });
+    
+    setEditingDiagnosis(null);
+  };
+
+  const handleDiagnosisEditCancel = () => {
+    setEditingDiagnosis(null);
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -548,8 +574,24 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
                             {new Date(diagnosis.created_at).toLocaleDateString()} • 
                             Complaint: {diagnosis.complaint}
                           </p>
+                          {diagnosis.last_edited_at && (
+                            <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                              <p className="text-xs text-amber-800">
+                                <span className="font-medium">Last edited:</span> {new Date(diagnosis.last_edited_at).toLocaleString()} by {diagnosis.last_edited_by || 'Unknown User'}
+                                {diagnosis.edit_location && (
+                                  <span className="ml-2">• Location: {diagnosis.edit_location}</span>
+                                )}
+                              </p>
+                            </div>
+                          )}
                         </div>
                         <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => handleEditDiagnosis(diagnosis)}
+                            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                          >
+                            Edit
+                          </button>
                           <button
                             onClick={() => setShowDeleteConfirm(diagnosis.id)}
                             className="text-red-600 hover:text-red-800 text-sm font-medium"
@@ -809,6 +851,15 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Diagnosis Editor Modal */}
+      {editingDiagnosis && (
+        <DiagnosisEditor
+          diagnosis={editingDiagnosis}
+          onSave={handleDiagnosisEditSave}
+          onCancel={handleDiagnosisEditCancel}
+        />
       )}
     </div>
   );

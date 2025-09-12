@@ -113,10 +113,13 @@ export class DatabaseService {
     return { data, error: null };
   }
 
-  // Update diagnosis with manual edits
+  // Update diagnosis with manual edits and audit trail
   static async updateDiagnosisManually(
     diagnosisId: string, 
-    editedData: Partial<Diagnosis>
+    editedData: Partial<Diagnosis>,
+    editorEmail?: string,
+    editLocation?: string,
+    customEditorName?: string
   ): Promise<{ data: Diagnosis | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
@@ -124,22 +127,53 @@ export class DatabaseService {
       return { data: null, error: 'User not authenticated' };
     }
 
+    // Get user's profile for audit trail or use custom name
+    let editorName = customEditorName || 'Unknown User';
+    
+    if (!customEditorName) {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, email')
+          .eq('id', user.id)
+          .single();
+        
+        if (profile) {
+          editorName = profile.full_name || profile.email || 'Unknown User';
+        }
+      } catch (profileError) {
+        // Silently fall back to customEditorName or 'Unknown User'
+      }
+    }
+
+    // Helper function to convert empty strings to null
+    const normalizeValue = (value: any) => {
+      if (typeof value === 'string' && value.trim() === '') {
+        return null;
+      }
+      return value;
+    };
+
     // Only allow updating certain fields that can be manually edited
     const allowedFields = {
+      // Core fields (always include these)
+      complaint: normalizeValue(editedData.complaint),
+      
       // Diagnosis fields
-      primary_diagnosis: editedData.primary_diagnosis,
+      primary_diagnosis: normalizeValue(editedData.primary_diagnosis),
       differential_diagnoses: editedData.differential_diagnoses,
       recommended_actions: editedData.recommended_actions,
       treatment: editedData.treatment,
-      improved_patient_history: editedData.improved_patient_history,
+      improved_patient_history: normalizeValue(editedData.improved_patient_history),
+      symptoms: editedData.symptoms,
       
       // Patient Information
       patient_age: editedData.patient_age,
-      patient_gender: editedData.patient_gender,
-      patient_name: editedData.patient_name,
-      patient_surname: editedData.patient_surname,
-      patient_id: editedData.patient_id,
-      date_of_birth: editedData.date_of_birth,
+      patient_gender: normalizeValue(editedData.patient_gender),
+      patient_name: normalizeValue(editedData.patient_name),
+      patient_surname: normalizeValue(editedData.patient_surname),
+      patient_id: normalizeValue(editedData.patient_id),
+      date_of_birth: normalizeValue(editedData.date_of_birth),
       weight: editedData.weight,
       height: editedData.height,
       
@@ -150,24 +184,30 @@ export class DatabaseService {
       temperature: editedData.temperature,
       respiratory_rate: editedData.respiratory_rate,
       oxygen_saturation: editedData.oxygen_saturation,
-      complaint_duration: editedData.complaint_duration,
+      complaint_duration: normalizeValue(editedData.complaint_duration),
       pain_scale: editedData.pain_scale,
-      symptom_onset: editedData.symptom_onset,
+      symptom_onset: normalizeValue(editedData.symptom_onset),
       
       // Medical History
-      allergies: editedData.allergies,
-      current_medications: editedData.current_medications,
-      chronic_conditions: editedData.chronic_conditions,
-      previous_surgeries: editedData.previous_surgeries,
-      previous_injuries: editedData.previous_injuries,
-      associated_symptoms: editedData.associated_symptoms,
+      allergies: normalizeValue(editedData.allergies),
+      current_medications: normalizeValue(editedData.current_medications),
+      chronic_conditions: normalizeValue(editedData.chronic_conditions),
+      previous_surgeries: normalizeValue(editedData.previous_surgeries),
+      previous_injuries: normalizeValue(editedData.previous_injuries),
+      associated_symptoms: normalizeValue(editedData.associated_symptoms),
       
       // Drug Recommendations
       inventory_drugs: editedData.inventory_drugs,
       additional_therapy: editedData.additional_therapy,
+      
+      // Audit trail (always include these)
+      last_edited_by: editorName,
+      last_edited_by_email: editorEmail || user.email || '',
+      last_edited_at: new Date().toISOString(),
+      edit_location: editLocation || 'Patient Details Page'
     };
 
-    // Remove undefined fields
+    // Remove undefined fields (but keep null fields to clear database values)
     const updateData = Object.fromEntries(
       Object.entries(allowedFields).filter(([_, value]) => value !== undefined)
     );
