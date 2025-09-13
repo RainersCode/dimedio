@@ -1,0 +1,1 @@
+when i clciked in /drug

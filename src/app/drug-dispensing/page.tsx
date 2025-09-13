@@ -16,6 +16,7 @@ export default function DrugDispensing() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deletedItems, setDeletedItems] = useState<{[recordId: string]: {patientDeleted: boolean, diagnosisDeleted: boolean}}>({});
+  const [inventoryData, setInventoryData] = useState<{[drugId: string]: number}>({});
   
   // Filters
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
@@ -80,6 +81,27 @@ export default function DrugDispensing() {
     };
   }, []);
 
+  const fetchInventoryData = async () => {
+    try {
+      const { data: inventory, error } = await DrugInventoryService.getUserDrugInventory();
+      if (error) {
+        console.warn('Could not fetch inventory data:', error);
+        return;
+      }
+      
+      // Create a mapping of drug_id to stock_quantity
+      const inventoryMap: {[drugId: string]: number} = {};
+      if (inventory) {
+        inventory.forEach(item => {
+          inventoryMap[item.id] = item.stock_quantity || 0;
+        });
+      }
+      setInventoryData(inventoryMap);
+    } catch (err) {
+      console.warn('Error fetching inventory data:', err);
+    }
+  };
+
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -94,6 +116,8 @@ export default function DrugDispensing() {
       }
       console.log('✅ Dispensing history fetched:', history?.length, 'records');
       console.log('📋 First few records:', history?.slice(0, 3));
+      
+      
       setDispensingHistory(history || []);
 
       // Fetch statistics
@@ -107,6 +131,9 @@ export default function DrugDispensing() {
       if (history && history.length > 0) {
         checkForDeletedItems(history);
       }
+
+      // Fetch inventory data
+      await fetchInventoryData();
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch data');
@@ -1077,7 +1104,10 @@ export default function DrugDispensing() {
             <button 
               onClick={async () => {
                 const confirmed = window.confirm(
-                  '⚠️ Are you sure you want to delete ALL dispensing history records?\n\nThis action cannot be undone and will permanently remove all your dispensing records from the database.'
+                  '⚠️ Are you sure you want to delete ALL dispensing history records?\n\n' +
+                  '⚠️ IMPORTANT: This will also REDUCE your current inventory by the total amounts of all dispensed drugs in this history.\n\n' +
+                  'For example, if you dispensed 5 units of Drug A across multiple records, your inventory will be reduced by 5 units.\n\n' +
+                  'This action cannot be undone and will permanently remove all your dispensing records from the database.'
                 );
                 
                 if (confirmed) {
@@ -1089,7 +1119,9 @@ export default function DrugDispensing() {
                       // Clear local state
                       setDispensingHistory([]);
                       setStats(null);
-                      setSearchTerm('');
+                      setDrugSearchTerm('');
+                      setPatientSearchTerm('');
+                      setDiagnosisSearchTerm('');
                       setDateFrom('');
                       setDateTo('');
                       setSelectedPeriod('month');
@@ -1129,6 +1161,7 @@ export default function DrugDispensing() {
                   <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Patient</th>
                   <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Diagnosis</th>
                   <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Quantity</th>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Available Stock</th>
                   <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Notes</th>
                   <th className="px-6 py-4 text-left text-sm font-medium text-slate-900">Action</th>
                 </tr>
@@ -1136,7 +1169,7 @@ export default function DrugDispensing() {
               <tbody className="divide-y divide-slate-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
                       <div className="flex items-center justify-center">
                         <svg className="w-5 h-5 mr-2 animate-spin" viewBox="0 0 24 24" fill="none">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -1154,8 +1187,8 @@ export default function DrugDispensing() {
                   </tr>
                 ) : filteredHistory.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
-                      {searchTerm ? 'No dispensing records match your search' : 'No dispensing records found'}
+                    <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
+                      {(drugSearchTerm || patientSearchTerm || diagnosisSearchTerm) ? 'No dispensing records match your search' : 'No dispensing records found'}
                     </td>
                   </tr>
                 ) : (
@@ -1198,6 +1231,18 @@ export default function DrugDispensing() {
                         <span className="font-medium">{record.quantity_dispensed}</span> units
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">
+                        {record.drug_id && inventoryData[record.drug_id] !== undefined ? (
+                          <div className="flex items-center gap-2">
+                            <span className={`font-medium ${inventoryData[record.drug_id] === 0 ? 'text-red-600' : inventoryData[record.drug_id] < 10 ? 'text-orange-600' : 'text-green-600'}`}>
+                              {inventoryData[record.drug_id]}
+                            </span>
+                            <span className="text-slate-400 text-xs">units</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic text-xs">Not in inventory</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">
                         {record.notes || '—'}
                       </td>
                       <td className="px-6 py-4 text-sm">
@@ -1206,8 +1251,10 @@ export default function DrugDispensing() {
                             const confirmed = window.confirm(
                               `⚠️ Are you sure you want to delete this dispensing record?\n\n` +
                               `Drug: ${record.drug_name || 'Unknown Drug'}\n` +
+                              `Quantity: ${record.quantity_dispensed || 1} units\n` +
                               `Patient: ${record.patient_name || 'Unknown Patient'}\n` +
                               `Date: ${new Date(record.dispensed_date).toLocaleDateString()}\n\n` +
+                              `⚠️ IMPORTANT: Deleting this record will also REDUCE your current inventory by ${record.quantity_dispensed || 1} units of ${record.drug_name || 'this drug'}.\n\n` +
                               `This action cannot be undone.`
                             );
                             

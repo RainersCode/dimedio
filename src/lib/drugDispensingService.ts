@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { InventoryUsageService } from './inventoryUsageService';
 import type { DrugUsageHistory, UserDrugInventory } from '@/types/database';
 
 export interface DrugDispensingRecord extends DrugUsageHistory {
@@ -566,18 +567,89 @@ export class DrugDispensingService {
     console.log('✅ User authenticated:', user.id);
 
     try {
-      // First check how many records exist
-      const { count, error: countError } = await supabase
+      // First fetch all records to process inventory reduction
+      const { data: allRecords, error: fetchError } = await supabase
         .from('drug_usage_history')
-        .select('*', { count: 'exact', head: true })
+        .select(`
+          *,
+          user_drug_inventory(
+            drug_name
+          )
+        `)
         .eq('user_id', user.id);
 
-      if (countError) {
-        console.error('❌ Error counting records:', countError);
-      } else {
-        console.log('📊 Records to delete:', count);
+      if (fetchError) {
+        console.error('❌ Error fetching records for inventory reduction:', fetchError);
+        return { success: false, error: 'Failed to fetch records: ' + fetchError.message };
       }
 
+      console.log('📊 Records to delete:', allRecords?.length || 0);
+
+      // Reduce inventory for each record that has a drug_id
+      const inventoryUpdates: { [drugId: string]: number } = {};
+      
+      if (allRecords) {
+        // Group quantity reductions by drug_id
+        for (const record of allRecords) {
+          if (record.drug_id && record.quantity_dispensed) {
+            if (!inventoryUpdates[record.drug_id]) {
+              inventoryUpdates[record.drug_id] = 0;
+            }
+            inventoryUpdates[record.drug_id] += record.quantity_dispensed;
+          }
+        }
+
+        // Apply inventory reductions
+        for (const [drugId, totalReduction] of Object.entries(inventoryUpdates)) {
+          console.log('🔄 Reducing inventory for drug_id:', drugId, 'by total quantity:', totalReduction);
+          
+          // Get current inventory
+          const { data: inventoryData, error: inventoryError } = await supabase
+            .from('user_drug_inventory')
+            .select('stock_quantity')
+            .eq('id', drugId)
+            .eq('user_id', user.id)
+            .single();
+
+          if (inventoryError) {
+            console.warn('⚠️ Could not find inventory record for drug_id:', drugId, inventoryError);
+          } else {
+            const newStock = Math.max(0, (inventoryData.stock_quantity || 0) - totalReduction);
+            console.log('📦 Updating inventory: stock quantity', inventoryData.stock_quantity, '→', newStock);
+            
+            const { error: updateError } = await supabase
+              .from('user_drug_inventory')
+              .update({ stock_quantity: newStock })
+              .eq('id', drugId)
+              .eq('user_id', user.id);
+
+            if (updateError) {
+              console.error('❌ Error updating inventory for drug_id:', drugId, updateError);
+              return { success: false, error: 'Failed to update inventory: ' + updateError.message };
+            }
+            
+            console.log('✅ Successfully reduced inventory by', totalReduction, 'units for drug_id:', drugId);
+            
+            // Record this inventory usage for the usage report
+            const recordForDrug = allRecords.find(r => r.drug_id === drugId);
+            const drugName = recordForDrug?.user_drug_inventory?.drug_name || 
+                            recordForDrug?.patient_info?.drug_name || 
+                            recordForDrug?.drug_name || 
+                            'Unknown Drug';
+            await InventoryUsageService.recordInventoryUsage(
+              drugId,
+              drugName,
+              totalReduction,
+              'bulk_deletion',
+              undefined,
+              undefined,
+              `Bulk deletion of all dispensing records on ${new Date().toLocaleDateString()}`
+            );
+          }
+        }
+      }
+
+      // Now delete all records
       const { data, error } = await supabase
         .from('drug_usage_history')
         .delete()
@@ -592,6 +664,7 @@ export class DrugDispensingService {
       }
 
       console.log('✅ Successfully cleared dispensing history. Deleted records:', data?.length || 0);
+      console.log('📦 Inventory updated for', Object.keys(inventoryUpdates).length, 'drugs');
       return { success: true, error: null };
     } catch (error) {
       console.error('❌ Exception in clearAllDispensingHistory:', error);
@@ -618,7 +691,12 @@ export class DrugDispensingService {
       // First check if the record exists
       const { data: existingRecord, error: checkError } = await supabase
         .from('drug_usage_history')
-        .select('*')
+        .select(`
+          *,
+          user_drug_inventory(
+            drug_name
+          )
+        `)
         .eq('id', recordId)
         .eq('user_id', user.id)
         .single();
@@ -629,6 +707,54 @@ export class DrugDispensingService {
       }
 
       console.log('📋 Record to delete found:', existingRecord);
+
+      // Before deleting, reduce the inventory count if the record has a drug_id
+      if (existingRecord.drug_id && existingRecord.quantity_dispensed) {
+        console.log('🔄 Reducing inventory for drug_id:', existingRecord.drug_id, 'by quantity:', existingRecord.quantity_dispensed);
+        
+        // Get current inventory
+        const { data: inventoryData, error: inventoryError } = await supabase
+          .from('user_drug_inventory')
+          .select('stock_quantity')
+          .eq('id', existingRecord.drug_id)
+          .eq('user_id', user.id)
+          .single();
+
+        if (inventoryError) {
+          console.warn('⚠️ Could not find inventory record for drug_id:', existingRecord.drug_id, inventoryError);
+        } else {
+          const newStock = Math.max(0, (inventoryData.stock_quantity || 0) - existingRecord.quantity_dispensed);
+          console.log('📦 Updating inventory: stock quantity', inventoryData.stock_quantity, '→', newStock);
+          
+          const { error: updateError } = await supabase
+            .from('user_drug_inventory')
+            .update({ stock_quantity: newStock })
+            .eq('id', existingRecord.drug_id)
+            .eq('user_id', user.id);
+
+          if (updateError) {
+            console.error('❌ Error updating inventory:', updateError);
+            return { success: false, error: 'Failed to update inventory: ' + updateError.message };
+          }
+          
+          console.log('✅ Successfully reduced inventory by', existingRecord.quantity_dispensed, 'units');
+          
+          // Record this inventory usage for the usage report
+          const drugName = existingRecord.user_drug_inventory?.drug_name || 
+                          existingRecord.patient_info?.drug_name || 
+                          existingRecord.drug_name || 
+                          'Unknown Drug';
+          await InventoryUsageService.recordInventoryUsage(
+            existingRecord.drug_id,
+            drugName,
+            existingRecord.quantity_dispensed,
+            'dispensing_record_deleted',
+            existingRecord.id,
+            existingRecord.patient_name,
+            `Deleted dispensing record on ${new Date().toLocaleDateString()}`
+          );
+        }
+      }
 
       const { data, error } = await supabase
         .from('drug_usage_history')

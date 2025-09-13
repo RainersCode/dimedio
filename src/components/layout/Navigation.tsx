@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { AdminService } from '@/lib/admin';
+import { UndispensedMedicationsService } from '@/lib/undispensedMedicationsService';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import AuthModal from '@/components/auth/AuthModal';
 import type { UserRole } from '@/types/database';
@@ -17,6 +18,7 @@ export default function Navigation() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [hasUndispensedMeds, setHasUndispensedMeds] = useState(false);
 
   useEffect(() => {
     const checkUserRole = async () => {
@@ -39,6 +41,35 @@ export default function Navigation() {
     // Add a small delay to prevent rapid state changes
     const timeoutId = setTimeout(checkUserRole, 100);
     return () => clearTimeout(timeoutId);
+  }, [user]);
+
+  // Check for undispensed medications
+  useEffect(() => {
+    const checkUndispensedMeds = async () => {
+      if (user) {
+        try {
+          const { hasAnyUndispensed } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications();
+          setHasUndispensedMeds(hasAnyUndispensed);
+        } catch (error) {
+          console.error('Error checking undispensed medications:', error);
+          setHasUndispensedMeds(false);
+        }
+      } else {
+        setHasUndispensedMeds(false);
+      }
+    };
+
+    checkUndispensedMeds();
+    
+    // Re-check every 30 seconds when user is logged in
+    let interval: NodeJS.Timeout;
+    if (user) {
+      interval = setInterval(checkUndispensedMeds, 30000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [user]);
 
   // Close dropdown when clicking outside
@@ -85,7 +116,12 @@ export default function Navigation() {
                   onClick={() => setOpenDropdown(openDropdown === 'patient-care' ? null : 'patient-care')}
                   className="flex items-center text-sm font-medium text-slate-700 hover:text-emerald-600 transition-colors duration-200"
                 >
-                  Patient Care
+                  <div className="flex items-center">
+                    Patient Care
+                    {hasUndispensedMeds && (
+                      <div className="ml-2 w-2 h-2 bg-red-500 rounded-full animate-pulse" title="Patients have undispensed medications"></div>
+                    )}
+                  </div>
                   <svg 
                     className={`w-4 h-4 ml-2 transition-transform duration-200 ${openDropdown === 'patient-care' ? 'rotate-180' : ''}`} 
                     fill="none" 
@@ -110,7 +146,12 @@ export default function Navigation() {
                         className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-emerald-600 transition-colors duration-200"
                         onClick={() => setOpenDropdown(null)}
                       >
-                        {t('patients')}
+                        <div className="flex items-center">
+                          {t('patients')}
+                          {hasUndispensedMeds && (
+                            <div className="ml-2 w-2 h-2 bg-red-500 rounded-full animate-pulse" title="Patients have undispensed medications"></div>
+                          )}
+                        </div>
                       </a>
                       <a 
                         href="/history" 
@@ -156,6 +197,13 @@ export default function Navigation() {
                         onClick={() => setOpenDropdown(null)}
                       >
                         Dispensing History
+                      </a>
+                      <a 
+                        href="/drug-usage-report" 
+                        className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-emerald-600 transition-colors duration-200"
+                        onClick={() => setOpenDropdown(null)}
+                      >
+                        Drug Usage Report
                       </a>
                     </div>
                   </div>
@@ -284,7 +332,12 @@ export default function Navigation() {
                   className="block text-sm text-slate-600 hover:text-emerald-600 transition-colors duration-200"
                   onClick={() => setMobileMenuOpen(false)}
                 >
-                  {t('patients')}
+                  <div className="flex items-center">
+                    {t('patients')}
+                    {hasUndispensedMeds && (
+                      <div className="ml-2 w-2 h-2 bg-red-500 rounded-full animate-pulse" title="Patients have undispensed medications"></div>
+                    )}
+                  </div>
                 </a>
                 <a 
                   href="/history" 
@@ -315,6 +368,13 @@ export default function Navigation() {
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   Dispensing History
+                </a>
+                <a 
+                  href="/drug-usage-report" 
+                  className="block text-sm text-slate-600 hover:text-emerald-600 transition-colors duration-200"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Drug Usage Report
                 </a>
               </div>
             </div>

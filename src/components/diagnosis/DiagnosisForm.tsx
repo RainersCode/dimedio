@@ -25,7 +25,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   
   const [formData, setFormData] = useState<DiagnosisFormData>({
     // Basic Info
-    complaint: initialComplaint,
+    complaint: initialComplaint || '',
     patient_age: undefined,
     patient_gender: '',
     symptoms: '',
@@ -2749,7 +2749,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         {/* Submit Button */}
         <button
           type="submit"
-          disabled={loading || !formData.complaint.trim() || !creditInfo?.canUse}
+          disabled={loading || !formData.complaint?.trim() || !creditInfo?.canUse}
           className="w-full px-6 py-4 bg-emerald-600 text-white text-lg font-semibold rounded-lg hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (

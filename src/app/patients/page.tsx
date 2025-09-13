@@ -2,6 +2,7 @@
 
 import Navigation from '@/components/layout/Navigation';
 import { PatientService } from '@/lib/patientService';
+import { UndispensedMedicationsService } from '@/lib/undispensedMedicationsService';
 import { PatientProfile } from '@/types/database';
 import { useState, useEffect } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
@@ -16,12 +17,25 @@ export default function Patients() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [deletingPatient, setDeletingPatient] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [patientsWithUndispensedMeds, setPatientsWithUndispensedMeds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (user) {
       fetchPatients();
+      checkUndispensedMedications();
     }
   }, [user]);
+
+  const checkUndispensedMedications = async () => {
+    try {
+      const { patients: undispensedPatients } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications();
+      const patientIdsWithUndispensed = new Set(undispensedPatients.map(p => p.patientId));
+      setPatientsWithUndispensedMeds(patientIdsWithUndispensed);
+    } catch (error) {
+      console.error('Error checking undispensed medications:', error);
+      setPatientsWithUndispensedMeds(new Set());
+    }
+  };
 
   const fetchPatients = async () => {
     try {
@@ -33,6 +47,8 @@ export default function Patients() {
         setError(fetchError);
       } else if (data) {
         setPatients(data);
+        // Re-check undispensed medications after fetching patients
+        await checkUndispensedMedications();
       }
     } catch (err) {
       setError('Failed to fetch patients');
@@ -185,14 +201,19 @@ export default function Patients() {
                         #{patient.patient_id || (patient.id.startsWith('anonymous-') ? 'ANON-' + patient.id.slice(0, 8) : patient.id.slice(0, 8))}
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-slate-900">
-                        <span className={patient.id.startsWith('anonymous-') ? 'text-amber-700 italic' : ''}>
-                          {patient.patient_name}
-                        </span>
-                        {patient.id.startsWith('anonymous-') && (
-                          <span className="ml-2 px-2 py-1 text-xs bg-amber-100 text-amber-800 rounded-full">
-                            Anonymous
+                        <div className="flex items-center">
+                          <span className={patient.id.startsWith('anonymous-') ? 'text-amber-700 italic' : ''}>
+                            {patient.patient_name}
                           </span>
-                        )}
+                          {patientsWithUndispensedMeds.has(patient.id) && (
+                            <div className="ml-2 w-2 h-2 bg-red-500 rounded-full animate-pulse" title="Patient has undispensed medications"></div>
+                          )}
+                          {patient.id.startsWith('anonymous-') && (
+                            <span className="ml-2 px-2 py-1 text-xs bg-amber-100 text-amber-800 rounded-full">
+                              Anonymous
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">
                         {patient.patient_age || 'N/A'}
