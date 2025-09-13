@@ -535,15 +535,21 @@ export class OrganizationService {
       return { error: 'User not authenticated' };
     }
 
-    const { error } = await supabase
-      .from('organization_members')
-      .delete()
-      .eq('user_id', user.id);
+    try {
+      // Call the database function to leave organization with elevated privileges
+      const { data, error: functionError } = await supabase.rpc('leave_organization', {
+        user_id: user.id
+      });
 
-    if (error) {
-      return { error: error.message };
+      if (functionError) {
+        console.error('Database function error:', functionError);
+        return { error: functionError.message };
+      }
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error leaving organization:', error);
+      return { error: 'Failed to leave organization' };
     }
-
-    return { error: null };
   }
 }

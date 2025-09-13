@@ -223,12 +223,21 @@ export default function OrganizationManager() {
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                     Organization Mode
                   </span>
-                  <button
-                    onClick={handleLeaveOrganization}
-                    className="px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors"
-                  >
-                    Leave Organization
-                  </button>
+                  {/* Show different buttons based on whether user is owner or member */}
+                  {userModeInfo?.organization?.created_by === user?.id ? (
+                    // Organization owner sees delete option in settings tab only
+                    <span className="text-xs text-slate-500 italic">
+                      Organization Owner
+                    </span>
+                  ) : (
+                    // Regular members can leave the organization
+                    <button
+                      onClick={handleLeaveOrganization}
+                      className="px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors"
+                    >
+                      Leave Organization
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -257,7 +266,7 @@ export default function OrganizationManager() {
                   >
                     Members
                   </button>
-                  {userModeInfo?.member?.role === 'admin' && (
+                  {userModeInfo?.organization?.created_by === user?.id && (
                     <button
                       onClick={() => setActiveTab('settings')}
                       className={`py-4 border-b-2 font-medium text-sm ${
@@ -352,7 +361,7 @@ export default function OrganizationManager() {
                   />
                 )}
 
-                {activeTab === 'settings' && userModeInfo?.member?.role === 'admin' && (
+                {activeTab === 'settings' && userModeInfo?.organization?.created_by === user?.id && (
                   <OrganizationSettings
                     organization={userModeInfo.organization!}
                     onError={setError}
