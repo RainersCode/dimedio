@@ -104,6 +104,7 @@ export class OrganizationService {
         .insert([{
           organization_id: organization.id,
           user_id: user.id,
+          user_email: user.email,
           role: 'admin',
           permissions: {
             write_off_drugs: true,
@@ -165,6 +166,31 @@ export class OrganizationService {
     return { data, error: null };
   }
 
+  static async deleteOrganization(organizationId: string): Promise<{ error: string | null }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return { error: 'User not authenticated' };
+    }
+
+    try {
+      // Call the database function to delete organization with elevated privileges
+      const { data, error: functionError } = await supabase.rpc('delete_organization', {
+        org_id: organizationId,
+        user_id: user.id
+      });
+
+      if (functionError) {
+        console.error('Database function error:', functionError);
+        return { error: functionError.message };
+      }
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting organization:', error);
+      return { error: 'Failed to delete organization' };
+    }
+  }
+
   // =====================================================
   // MEMBER MANAGEMENT
   // =====================================================
@@ -178,6 +204,19 @@ export class OrganizationService {
 
     if (error) {
       return { data: null, error: error.message };
+    }
+
+    // Add user info structure for compatibility with existing UI
+    if (data) {
+      const membersWithUserInfo = data.map(member => ({
+        ...member,
+        user: {
+          id: member.user_id,
+          email: member.user_email || 'Unknown Email'
+        }
+      }));
+
+      return { data: membersWithUserInfo, error: null };
     }
 
     return { data, error: null };
@@ -291,6 +330,44 @@ export class OrganizationService {
       return { data: null, error: error.message };
     }
 
+    // Send invitation email
+    try {
+      const invitationUrl = `${window.location.origin}/organization/invite?token=${data.token}`;
+
+      // Get organization info for the email
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('name')
+        .eq('id', organizationId)
+        .single();
+
+      // For now, we'll use a simple approach - in a real app you'd want to use
+      // Supabase Edge Functions or a proper email service
+      console.log(`
+        Invitation Email Details:
+        To: ${email}
+        Subject: Invitation to join ${orgData?.name || 'organization'} on Dimedio
+
+        You've been invited to join ${orgData?.name || 'an organization'} on Dimedio!
+
+        Click here to accept the invitation:
+        ${invitationUrl}
+
+        This invitation will expire in 7 days.
+      `);
+
+      // TODO: Replace this with actual email sending
+      // For now, copy the invitation URL to clipboard and show a message
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(invitationUrl);
+        console.log('Invitation URL copied to clipboard:', invitationUrl);
+      }
+
+    } catch (emailError) {
+      console.error('Error sending invitation email:', emailError);
+      // Don't fail the invitation creation if email fails
+    }
+
     return { data, error: null };
   }
 
@@ -353,6 +430,7 @@ export class OrganizationService {
         .insert([{
           organization_id: invitation.organization_id,
           user_id: user.id,
+          user_email: user.email,
           role: invitation.role,
           permissions: invitation.permissions,
           status: 'active',

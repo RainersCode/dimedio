@@ -43,7 +43,7 @@ export default function MemberManagement({ organizationId, currentUserRole, onEr
     if (error) {
       onError(error);
     } else {
-      onSuccess(`Invitation sent to ${inviteEmail}`);
+      onSuccess(`Invitation created for ${inviteEmail}! The invitation link has been copied to your clipboard - share it with the user.`);
       setInviteEmail('');
       setShowInviteForm(false);
     }

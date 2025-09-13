@@ -16,6 +16,7 @@ export default function OrganizationSettings({ organization, onError, onSuccess,
   const [description, setDescription] = useState(organization.description || '');
   const [settings, setSettings] = useState(organization.settings);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,6 +43,32 @@ export default function OrganizationSettings({ organization, onError, onSuccess,
       ...prev,
       [key]: value
     }));
+  };
+
+  const handleDeleteOrganization = async () => {
+    if (!confirm(
+      `Are you sure you want to delete "${organization.name}"?\n\n` +
+      'This will permanently delete:\n' +
+      '• All organization data\n' +
+      '• All member accounts\n' +
+      '• All shared inventory\n' +
+      '• All shared patient data\n\n' +
+      'This action cannot be undone.'
+    )) {
+      return;
+    }
+
+    setDeleting(true);
+    const { error } = await OrganizationService.deleteOrganization(organization.id);
+
+    if (error) {
+      onError(error);
+      setDeleting(false);
+    } else {
+      onSuccess('Organization deleted successfully');
+      // Redirect will be handled by the parent component when it refreshes user mode
+      window.location.href = '/';
+    }
   };
 
   return (
@@ -185,6 +212,30 @@ export default function OrganizationSettings({ organization, onError, onSuccess,
               <span className="font-medium text-slate-700">Last Updated:</span>
               <span className="text-slate-600 ml-2">{new Date(organization.updated_at).toLocaleDateString()}</span>
             </div>
+          </div>
+        </div>
+
+        {/* Danger Zone */}
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+          <h4 className="text-md font-medium text-red-800 mb-4">Danger Zone</h4>
+          <div className="flex items-center justify-between">
+            <div>
+              <h5 className="text-sm font-medium text-red-800">Delete Organization</h5>
+              <p className="text-sm text-red-600 mt-1">
+                Permanently delete this organization and all associated data. This action cannot be undone.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleDeleteOrganization}
+              disabled={deleting}
+              className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center"
+            >
+              {deleting && (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+              )}
+              Delete Organization
+            </button>
           </div>
         </div>
 
