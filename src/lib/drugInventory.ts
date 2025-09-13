@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
-import type { 
+import { OrganizationService } from './organizationService';
+import { OrganizationDrugInventoryService } from './organizationDrugInventoryService';
+import type {
   DrugCategory,
   UserDrugInventory,
   DrugInventoryFormData,
@@ -7,6 +9,7 @@ import type {
   DrugUsageHistory,
   DrugInteraction
 } from '@/types/database';
+import type { OrganizationDrugInventory } from '@/types/organization';
 
 export class DrugInventoryService {
   // Check if user has access to drug inventory (premium feature)
@@ -50,34 +53,101 @@ export class DrugInventoryService {
     return { data, error: null };
   }
 
-  // Get user's drug inventory
-  static async getUserDrugInventory(): Promise<{ data: UserDrugInventory[] | null; error: string | null }> {
+  // Get user's drug inventory (supports both individual and organization modes)
+  static async getUserDrugInventory(): Promise<{
+    data: (UserDrugInventory | OrganizationDrugInventory)[] | null;
+    error: string | null;
+    mode?: 'individual' | 'organization';
+  }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
+
     if (authError || !user) {
       return { data: null, error: 'User not authenticated' };
     }
 
-    const { data, error } = await supabase
-      .from('user_drug_inventory')
-      .select(`
-        *,
-        category:drug_categories(*)
-      `)
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('drug_name', { ascending: true });
+    try {
+      // Check user mode
+      const { data: modeInfo, error: modeError } = await OrganizationService.getUserModeInfo(user.id);
+      if (modeError) {
+        return { data: null, error: modeError };
+      }
 
-    if (error) {
-      console.error('Error fetching drug inventory:', error);
-      return { data: null, error: error.message };
+      if (modeInfo?.mode === 'organization' && modeInfo.organization) {
+        // Use organization inventory
+        const { data: orgData, error: orgError } = await OrganizationDrugInventoryService.getOrganizationDrugInventory(modeInfo.organization.id);
+        return { data: orgData, error: orgError, mode: 'organization' };
+      } else {
+        // Use individual inventory (existing logic)
+        const { data, error } = await supabase
+          .from('user_drug_inventory')
+          .select(`
+            *,
+            category:drug_categories(*)
+          `)
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .order('drug_name', { ascending: true });
+
+        if (error) {
+          console.error('Error fetching drug inventory:', error);
+          return { data: null, error: error.message };
+        }
+
+        return { data, error: null, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error determining user mode:', error);
+      // Fallback to individual mode
+      const { data, error: fallbackError } = await supabase
+        .from('user_drug_inventory')
+        .select(`
+          *,
+          category:drug_categories(*)
+        `)
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .order('drug_name', { ascending: true });
+
+      return { data, error: fallbackError, mode: 'individual' };
     }
-
-    return { data, error: null };
   }
 
-  // Add drug to inventory
-  static async addDrugToInventory(formData: DrugInventoryFormData): Promise<{ data: UserDrugInventory | null; error: string | null }> {
+  // Add drug to inventory (dual-mode support)
+  static async addDrugToInventory(formData: DrugInventoryFormData): Promise<{
+    data: (UserDrugInventory | OrganizationDrugInventory) | null;
+    error: string | null;
+    mode?: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated' };
+    }
+
+    try {
+      // Check user mode
+      const { data: modeInfo, error: modeError } = await OrganizationService.getUserModeInfo(user.id);
+      if (modeError) {
+        return { data: null, error: modeError };
+      }
+
+      if (modeInfo?.mode === 'organization' && modeInfo.organization) {
+        // Use organization inventory
+        const { data: orgData, error: orgError } = await OrganizationDrugInventoryService.addDrugToOrganizationInventory(formData, modeInfo.organization.id);
+        return { data: orgData, error: orgError, mode: 'organization' };
+      } else {
+        // Use individual inventory (existing logic)
+        const result = await this.addDrugToIndividualInventory(formData);
+        return { ...result, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error adding drug to inventory:', error);
+      return { data: null, error: 'Failed to add drug to inventory' };
+    }
+  }
+
+  // Add drug to individual inventory (original method)
+  private static async addDrugToIndividualInventory(formData: DrugInventoryFormData): Promise<{ data: UserDrugInventory | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
@@ -150,8 +220,36 @@ export class DrugInventoryService {
     return { data, error: null };
   }
 
-  // Delete drug from inventory (hard delete by default, soft delete if has history)
+  // Delete drug from inventory (dual-mode support)
   static async deleteDrugFromInventory(drugId: string): Promise<{ error: string | null }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { error: 'User not authenticated' };
+    }
+
+    try {
+      // Check user mode
+      const { data: modeInfo, error: modeError } = await OrganizationService.getUserModeInfo(user.id);
+      if (modeError) {
+        return { error: modeError };
+      }
+
+      if (modeInfo?.mode === 'organization' && modeInfo.organization) {
+        // Use organization inventory deletion
+        return await OrganizationDrugInventoryService.deleteOrganizationDrug(drugId);
+      } else {
+        // Use individual inventory deletion (existing logic)
+        return await this.deleteIndividualDrug(drugId);
+      }
+    } catch (error) {
+      console.error('Error deleting drug from inventory:', error);
+      return { error: 'Failed to delete drug' };
+    }
+  }
+
+  // Delete drug from individual inventory (original method)
+  private static async deleteIndividualDrug(drugId: string): Promise<{ error: string | null }> {
     try {
       // First check if this drug has been used in diagnoses or has usage history
       const { data: hasHistory, error: historyError } = await supabase
@@ -393,10 +491,44 @@ export class DrugInventoryService {
     return { data, error: null };
   }
 
-  // Search drugs by name or indication
-  static async searchDrugs(query: string): Promise<{ data: UserDrugInventory[] | null; error: string | null }> {
+  // Search drugs by name or indication (dual-mode support)
+  static async searchDrugs(query: string): Promise<{
+    data: (UserDrugInventory | OrganizationDrugInventory)[] | null;
+    error: string | null;
+    mode?: 'individual' | 'organization';
+  }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated' };
+    }
+
+    try {
+      // Check user mode
+      const { data: modeInfo, error: modeError } = await OrganizationService.getUserModeInfo(user.id);
+      if (modeError) {
+        return { data: null, error: modeError };
+      }
+
+      if (modeInfo?.mode === 'organization' && modeInfo.organization) {
+        // Use organization inventory search
+        const { data: orgData, error: orgError } = await OrganizationDrugInventoryService.searchOrganizationDrugs(query, modeInfo.organization.id);
+        return { data: orgData, error: orgError, mode: 'organization' };
+      } else {
+        // Use individual inventory search (existing logic)
+        const result = await this.searchIndividualDrugs(query);
+        return { ...result, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error searching drugs:', error);
+      return { data: null, error: 'Failed to search drugs' };
+    }
+  }
+
+  // Search individual drugs (original method)
+  private static async searchIndividualDrugs(query: string): Promise<{ data: UserDrugInventory[] | null; error: string | null }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
     if (authError || !user) {
       return { data: null, error: 'User not authenticated' };
     }

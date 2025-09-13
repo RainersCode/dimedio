@@ -1,9 +1,43 @@
 import { supabase } from './supabase';
+import { OrganizationService } from './organizationService';
+import { OrganizationPatientService } from './organizationPatientService';
 import type { PatientProfile, Diagnosis } from '@/types/database';
+import type { OrganizationPatient, OrganizationDiagnosis } from '@/types/organization';
 
 export class PatientService {
-  // Create or update a patient profile from diagnosis data
-  static async savePatientFromDiagnosis(diagnosis: Diagnosis): Promise<{ data: PatientProfile | null; error: string | null }> {
+  // Create or update a patient profile from diagnosis data (dual-mode support)
+  static async savePatientFromDiagnosis(
+    diagnosis: Diagnosis | OrganizationDiagnosis
+  ): Promise<{
+    data: (PatientProfile | OrganizationPatient) | null;
+    error: string | null;
+    mode?: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated' };
+    }
+
+    try {
+      // Check if this is an organization diagnosis
+      if ('organization_id' in diagnosis && diagnosis.organization_id) {
+        // Use organization patient service
+        const { data: orgData, error: orgError } = await OrganizationPatientService.savePatientFromDiagnosis(diagnosis as OrganizationDiagnosis);
+        return { data: orgData, error: orgError, mode: 'organization' };
+      } else {
+        // Use individual patient service (existing logic)
+        const result = await this.saveIndividualPatientFromDiagnosis(diagnosis as Diagnosis);
+        return { ...result, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error saving patient from diagnosis:', error);
+      return { data: null, error: 'Failed to save patient' };
+    }
+  }
+
+  // Create or update an individual patient profile from diagnosis data (original method)
+  private static async saveIndividualPatientFromDiagnosis(diagnosis: Diagnosis): Promise<{ data: PatientProfile | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
@@ -120,8 +154,42 @@ export class PatientService {
     }
   }
 
-  // Get all patients for the current user
-  static async getPatients(limit = 50, offset = 0): Promise<{ data: (PatientProfile & { diagnosis_count: number; last_diagnosis: string })[] | null; error: string | null }> {
+  // Get all patients for the current user (dual-mode support)
+  static async getPatients(limit = 50, offset = 0): Promise<{
+    data: ((PatientProfile | OrganizationPatient) & { diagnosis_count: number; last_diagnosis: string })[] | null;
+    error: string | null;
+    mode?: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated' };
+    }
+
+    try {
+      // Check user mode
+      const { data: modeInfo, error: modeError } = await OrganizationService.getUserModeInfo(user.id);
+      if (modeError) {
+        return { data: null, error: modeError };
+      }
+
+      if (modeInfo?.mode === 'organization' && modeInfo.organization) {
+        // Use organization patient service
+        const { data: orgData, error: orgError } = await OrganizationPatientService.getOrganizationPatients(modeInfo.organization.id, limit, offset);
+        return { data: orgData, error: orgError, mode: 'organization' };
+      } else {
+        // Use individual patient service (existing logic)
+        const result = await this.getIndividualPatients(limit, offset);
+        return { ...result, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error getting patients:', error);
+      return { data: null, error: 'Failed to get patients' };
+    }
+  }
+
+  // Get all individual patients for the current user (original method)
+  private static async getIndividualPatients(limit = 50, offset = 0): Promise<{ data: (PatientProfile & { diagnosis_count: number; last_diagnosis: string })[] | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
@@ -237,8 +305,49 @@ export class PatientService {
     return { data: paginatedData, error: null };
   }
 
-  // Get a single patient with their full diagnosis history
-  static async getPatientById(patientId: string): Promise<{ data: (PatientProfile & { diagnoses: Diagnosis[] }) | null; error: string | null }> {
+  // Get a single patient with their full diagnosis history (dual-mode support)
+  static async getPatientById(patientId: string): Promise<{
+    data: ((PatientProfile | OrganizationPatient) & { diagnoses: (Diagnosis | OrganizationDiagnosis)[] }) | null;
+    error: string | null;
+    mode?: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated' };
+    }
+
+    try {
+      // Check if this is an anonymous patient (format: anonymous-{diagnosisId})
+      if (patientId.startsWith('anonymous-')) {
+        // Handle anonymous patients using individual service
+        const result = await this.getIndividualPatientById(patientId);
+        return { ...result, mode: 'individual' };
+      }
+
+      // Check user mode
+      const { data: modeInfo, error: modeError } = await OrganizationService.getUserModeInfo(user.id);
+      if (modeError) {
+        return { data: null, error: modeError };
+      }
+
+      if (modeInfo?.mode === 'organization' && modeInfo.organization) {
+        // Use organization patient service
+        const { data: orgData, error: orgError } = await OrganizationPatientService.getOrganizationPatientById(patientId, modeInfo.organization.id);
+        return { data: orgData, error: orgError, mode: 'organization' };
+      } else {
+        // Use individual patient service (existing logic)
+        const result = await this.getIndividualPatientById(patientId);
+        return { ...result, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error getting patient by ID:', error);
+      return { data: null, error: 'Failed to get patient' };
+    }
+  }
+
+  // Get individual patient by ID (original method)
+  private static async getIndividualPatientById(patientId: string): Promise<{ data: (PatientProfile & { diagnoses: Diagnosis[] }) | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {

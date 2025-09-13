@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { DrugInventoryService, formatDrugName, getDrugStockStatus, isNearExpiry } from '@/lib/drugInventory';
 import { DrugInventoryExportService } from '@/lib/drugInventoryExport';
+import { useOrganizationPermissions } from '@/hooks/useOrganizationPermissions';
+import { ManageInventoryGuard, WriteOffGuard } from '@/components/organization/PermissionGuard';
+import UserModeIndicator from '@/components/organization/UserModeIndicator';
 import type { UserDrugInventory, DrugCategory } from '@/types/database';
 import AddDrugModal from './AddDrugModal';
 import EditDrugModal from './EditDrugModal';
@@ -11,6 +14,7 @@ import ImportDrugsModal from './ImportDrugsModal';
 
 export default function DrugInventoryPage() {
   const { t } = useLanguage();
+  const permissions = useOrganizationPermissions();
   const [drugs, setDrugs] = useState<UserDrugInventory[]>([]);
   const [categories, setCategories] = useState<DrugCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -321,8 +325,20 @@ export default function DrugInventoryPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-light text-slate-900 mb-2">Drug Inventory Management</h1>
-          <p className="text-slate-600">Manage your clinic's drug inventory and integrate with diagnosis suggestions</p>
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+            <div>
+              <h1 className="text-3xl font-light text-slate-900 mb-2">Drug Inventory Management</h1>
+              <p className="text-slate-600">
+                {permissions.userMode === 'organization'
+                  ? 'Manage your organization\'s shared drug inventory and integrate with diagnosis suggestions'
+                  : 'Manage your clinic\'s drug inventory and integrate with diagnosis suggestions'
+                }
+              </p>
+            </div>
+            <div className="lg:w-80">
+              <UserModeIndicator compact />
+            </div>
+          </div>
         </div>
 
         {/* Error Alert */}
@@ -460,15 +476,17 @@ export default function DrugInventoryPage() {
             {/* Action Buttons Row */}
             <div className="flex justify-end">
             <div className="flex gap-2">
-              <button
-                onClick={() => setShowImportModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center"
-              >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                Import
-              </button>
+              <ManageInventoryGuard fallback={null} showError={false}>
+                <button
+                  onClick={() => setShowImportModal(true)}
+                  className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  Import
+                </button>
+              </ManageInventoryGuard>
               <div className="flex gap-1">
                 <button
                   onClick={exportToJson}
@@ -507,23 +525,27 @@ export default function DrugInventoryPage() {
                   Word
                 </button>
               </div>
-              {drugs.length > 0 && (
+              <ManageInventoryGuard fallback={null} showError={false}>
+                {drugs.length > 0 && (
+                  <button
+                    onClick={() => setShowDeleteAllModal(true)}
+                    className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors flex items-center"
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete All
+                  </button>
+                )}
+              </ManageInventoryGuard>
+              <ManageInventoryGuard fallback={null} showError={false}>
                 <button
-                  onClick={() => setShowDeleteAllModal(true)}
-                  className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors flex items-center"
+                  onClick={() => setShowAddModal(true)}
+                  className="px-6 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
                 >
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                  Delete All
+                  Add Drug
                 </button>
-              )}
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="px-6 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
-              >
-                Add Drug
-              </button>
+              </ManageInventoryGuard>
             </div>
             </div>
           </div>
