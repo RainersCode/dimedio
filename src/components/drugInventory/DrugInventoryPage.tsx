@@ -91,25 +91,42 @@ export default function DrugInventoryPage() {
     if (error) {
       setError(error);
     } else {
+      // Remove the deleted drug from the current state instead of reloading all data
+      setDrugs(prevDrugs => prevDrugs.filter(drug => drug.id !== drugId));
+    }
+  };
+
+  const handleDrugAdded = async () => {
+    setShowAddModal(false);
+    // Refresh data while maintaining search state
+    if (searchQuery.trim()) {
+      await handleSearch();
+    } else {
       await loadData();
     }
   };
 
-  const handleDrugAdded = () => {
-    setShowAddModal(false);
-    loadData();
-  };
-
-  const handleDrugUpdated = () => {
+  const handleDrugUpdated = async () => {
     setEditingDrug(null);
-    loadData();
+    // Refresh data while maintaining search state
+    if (searchQuery.trim()) {
+      await handleSearch();
+    } else {
+      await loadData();
+    }
   };
 
-  const handleImportSuccess = (importedCount: number) => {
+  const handleImportSuccess = async (importedCount: number) => {
     setShowImportModal(false);
     setSuccessMessage(`Successfully imported ${importedCount} drugs!`);
-    loadData();
-    
+
+    // Refresh data while maintaining search state
+    if (searchQuery.trim()) {
+      await handleSearch();
+    } else {
+      await loadData();
+    }
+
     // Clear success message after 5 seconds
     setTimeout(() => setSuccessMessage(null), 5000);
   };
@@ -173,8 +190,10 @@ export default function DrugInventoryPage() {
       } else {
         setSuccessMessage(`Successfully deleted ${deletedCount} drugs from your inventory!`);
         setShowDeleteAllModal(false);
-        loadData(); // Reload the data
-        
+
+        // Since all drugs are deleted, just clear the state
+        setDrugs([]);
+
         // Clear success message after 5 seconds
         setTimeout(() => setSuccessMessage(null), 5000);
       }

@@ -14,13 +14,56 @@ export class PatientService {
       return { data: null, error: 'Patient name is required to save patient profile' };
     }
 
-    // Check if patient already exists
-    const { data: existingPatient, error: searchError } = await supabase
-      .from('patient_profiles')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('patient_name', diagnosis.patient_name)
-      .maybeSingle();
+    // Check if patient already exists using multiple identifying fields for better matching
+    // First try to match by patient_id if provided (most reliable)
+    let existingPatient = null;
+    let searchError = null;
+
+    if (diagnosis.patient_id?.trim()) {
+      const { data, error } = await supabase
+        .from('patient_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('patient_id', diagnosis.patient_id.trim())
+        .maybeSingle();
+      existingPatient = data;
+      searchError = error;
+    }
+
+    // If no patient_id match, try matching by full name + date of birth (if available)
+    if (!existingPatient && !searchError && diagnosis.date_of_birth?.trim()) {
+      const { data, error } = await supabase
+        .from('patient_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('patient_name', diagnosis.patient_name)
+        .eq('date_of_birth', diagnosis.date_of_birth)
+        .maybeSingle();
+      existingPatient = data;
+      searchError = error;
+    }
+
+    // Finally, fall back to name matching but only if no other identifiers are available
+    if (!existingPatient && !searchError && !diagnosis.patient_id?.trim() && !diagnosis.date_of_birth?.trim()) {
+      const fullName = `${diagnosis.patient_name || ''} ${diagnosis.patient_surname || ''}`.trim();
+      const { data, error } = await supabase
+        .from('patient_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('patient_name', diagnosis.patient_name)
+        .maybeSingle();
+      existingPatient = data;
+      searchError = error;
+
+      // If we found a match by first name only, let's double-check it's really the same patient
+      if (existingPatient && diagnosis.patient_surname?.trim()) {
+        const existingFullName = `${existingPatient.patient_name || ''} ${existingPatient.patient_surname || ''}`.trim();
+        if (existingFullName !== fullName) {
+          // Names don't fully match, treat as different patient
+          existingPatient = null;
+        }
+      }
+    }
 
     if (searchError) {
       console.error('Error searching for existing patient:', searchError);
@@ -30,16 +73,17 @@ export class PatientService {
     const patientData = {
       user_id: user.id,
       patient_name: diagnosis.patient_name,
+      patient_surname: diagnosis.patient_surname || existingPatient?.patient_surname,
       patient_age: diagnosis.patient_age,
       patient_gender: diagnosis.patient_gender,
+      patient_id: diagnosis.patient_id || existingPatient?.patient_id,
+      date_of_birth: diagnosis.date_of_birth || existingPatient?.date_of_birth,
       medical_history: [
         ...(existingPatient?.medical_history || []),
         diagnosis.primary_diagnosis
       ].filter(Boolean),
       allergies: diagnosis.allergies ? [diagnosis.allergies] : (existingPatient?.allergies || []),
       current_medications: diagnosis.current_medications ? [diagnosis.current_medications] : (existingPatient?.current_medications || []),
-      patient_id: diagnosis.patient_id || existingPatient?.patient_id,
-      date_of_birth: diagnosis.date_of_birth || existingPatient?.date_of_birth,
       last_diagnosis_id: diagnosis.id,
       last_visit_date: new Date().toISOString(),
     };
@@ -113,13 +157,42 @@ export class PatientService {
     const profileDiagnoses = allDiagnoses?.filter(d => d.patient_name && existingPatientNames.includes(d.patient_name)) || [];
     const anonymousDiagnoses = allDiagnoses?.filter(d => !d.patient_name || !existingPatientNames.includes(d.patient_name)) || [];
 
-    // Process existing patients
+    // Process existing patients with improved matching logic
     const processedPatients = (patients || []).map(patient => {
-      const patientDiagnoses = profileDiagnoses.filter(d => d.patient_name === patient.patient_name);
-      const sortedDiagnoses = patientDiagnoses.sort((a, b) => 
+      let patientDiagnoses = [];
+
+      // First try to match by patient_id
+      if (patient.patient_id) {
+        patientDiagnoses = profileDiagnoses.filter(d => d.patient_id === patient.patient_id);
+      }
+
+      // If no matches by ID, try by name + date_of_birth
+      if (patientDiagnoses.length === 0 && patient.date_of_birth) {
+        patientDiagnoses = profileDiagnoses.filter(d =>
+          d.patient_name === patient.patient_name &&
+          d.date_of_birth === patient.date_of_birth
+        );
+      }
+
+      // Fall back to name matching with surname verification
+      if (patientDiagnoses.length === 0) {
+        patientDiagnoses = profileDiagnoses.filter(d => {
+          if (d.patient_name !== patient.patient_name) return false;
+
+          // If both have surnames, they must match
+          if (patient.patient_surname && d.patient_surname) {
+            return d.patient_surname === patient.patient_surname;
+          }
+
+          // If only one has surname, still consider it a match for backward compatibility
+          return true;
+        });
+      }
+
+      const sortedDiagnoses = patientDiagnoses.sort((a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
-      
+
       return {
         ...patient,
         diagnosis_count: patientDiagnoses.length,
@@ -226,13 +299,55 @@ export class PatientService {
       return { data: null, error: patientError.message };
     }
 
-    // Get all diagnoses for this patient
-    const { data: diagnoses, error: diagnosesError } = await supabase
-      .from('diagnoses')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('patient_name', patient.patient_name)
-      .order('created_at', { ascending: false });
+    // Get all diagnoses for this patient using improved matching logic
+    let diagnoses = [];
+    let diagnosesError = null;
+
+    // First try to get diagnoses by patient_id if available
+    if (patient.patient_id) {
+      const { data, error } = await supabase
+        .from('diagnoses')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('patient_id', patient.patient_id)
+        .order('created_at', { ascending: false });
+      diagnoses = data || [];
+      diagnosesError = error;
+    }
+
+    // If no diagnoses found by patient_id, try by name + date_of_birth
+    if (diagnoses.length === 0 && !diagnosesError && patient.date_of_birth) {
+      const { data, error } = await supabase
+        .from('diagnoses')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('patient_name', patient.patient_name)
+        .eq('date_of_birth', patient.date_of_birth)
+        .order('created_at', { ascending: false });
+      diagnoses = [...diagnoses, ...(data || [])];
+      diagnosesError = error;
+    }
+
+    // Finally, fall back to name matching for backward compatibility
+    if (diagnoses.length === 0 && !diagnosesError) {
+      const { data, error } = await supabase
+        .from('diagnoses')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('patient_name', patient.patient_name)
+        .order('created_at', { ascending: false });
+
+      // Filter results to ensure they match the full name if surname is available
+      const filteredData = (data || []).filter(diagnosis => {
+        if (!patient.patient_surname || !diagnosis.patient_surname) {
+          return true; // Include if either doesn't have surname
+        }
+        return diagnosis.patient_surname === patient.patient_surname;
+      });
+
+      diagnoses = [...diagnoses, ...filteredData];
+      diagnosesError = error;
+    }
 
     if (diagnosesError) {
       console.warn('Error fetching patient diagnoses:', diagnosesError);
@@ -298,12 +413,31 @@ export class PatientService {
         return { error: fetchError.message };
       }
 
-      // Delete all diagnoses for this patient
-      const { error: diagnosesError } = await supabase
-        .from('diagnoses')
-        .delete()
-        .eq('patient_name', patient.patient_name)
-        .eq('user_id', user.id);
+      // Delete all diagnoses for this patient using improved matching
+      let diagnosesError = null;
+
+      // First try to delete by patient_id if available
+      if (patient.patient_id) {
+        const { error } = await supabase
+          .from('diagnoses')
+          .delete()
+          .eq('patient_id', patient.patient_id)
+          .eq('user_id', user.id);
+        diagnosesError = error;
+      }
+
+      // Also delete by name matching for backward compatibility
+      if (!diagnosesError) {
+        const { error } = await supabase
+          .from('diagnoses')
+          .delete()
+          .eq('patient_name', patient.patient_name)
+          .eq('user_id', user.id);
+        // Don't overwrite previous error, but log this one if it exists
+        if (error) {
+          console.warn('Error deleting diagnoses by name:', error);
+        }
+      }
 
       if (diagnosesError) {
         console.error('Error deleting patient diagnoses:', diagnosesError);

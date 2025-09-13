@@ -105,15 +105,20 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 CREATE TABLE IF NOT EXISTS patient_profiles (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-    
+
     -- Patient Info
     patient_name VARCHAR(100),
+    patient_surname VARCHAR(100),
     patient_age INTEGER,
     patient_gender VARCHAR(20),
+    patient_id VARCHAR(50),
+    date_of_birth DATE,
     medical_history TEXT[],
     allergies TEXT[],
     current_medications TEXT[],
-    
+    last_diagnosis_id VARCHAR(50),
+    last_visit_date TIMESTAMPTZ,
+
     -- Metadata
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -219,8 +224,12 @@ CREATE TRIGGER update_patient_profiles_updated_at
 -- Indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_diagnoses_user_id ON diagnoses(user_id);
 CREATE INDEX IF NOT EXISTS idx_diagnoses_created_at ON diagnoses(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_diagnoses_patient_id ON diagnoses(patient_id);
+CREATE INDEX IF NOT EXISTS idx_diagnoses_patient_name_dob ON diagnoses(patient_name, date_of_birth);
 CREATE INDEX IF NOT EXISTS idx_diagnosis_history_diagnosis_id ON diagnosis_history(diagnosis_id);
 CREATE INDEX IF NOT EXISTS idx_patient_profiles_user_id ON patient_profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_patient_profiles_patient_id ON patient_profiles(patient_id);
+CREATE INDEX IF NOT EXISTS idx_patient_profiles_name_dob ON patient_profiles(patient_name, date_of_birth);
 
 -- =====================================================
 -- SAMPLE DATA (Optional - for testing)

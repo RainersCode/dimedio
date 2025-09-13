@@ -130,8 +130,9 @@ export interface UserPreferences {
 export interface PatientProfile {
   id: string;
   user_id: string;
-  
+
   patient_name: string;
+  patient_surname?: string;
   patient_age?: number;
   patient_gender?: string;
   patient_id?: string;
@@ -141,7 +142,7 @@ export interface PatientProfile {
   current_medications?: string[];
   last_diagnosis_id?: string;
   last_visit_date?: string;
-  
+
   is_active: boolean;
   created_at: string;
   updated_at: string;
