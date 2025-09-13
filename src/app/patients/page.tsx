@@ -3,8 +3,9 @@
 import Navigation from '@/components/layout/Navigation';
 import { PatientService } from '@/lib/patientService';
 import { UndispensedMedicationsService } from '@/lib/undispensedMedicationsService';
+import { useUndispensedMedicationsRefresh } from '@/hooks/useUndispensedMedicationsRefresh';
 import { PatientProfile } from '@/types/database';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import Link from 'next/link';
 
@@ -26,7 +27,7 @@ export default function Patients() {
     }
   }, [user]);
 
-  const checkUndispensedMedications = async () => {
+  const checkUndispensedMedications = useCallback(async () => {
     try {
       const { patients: undispensedPatients } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications();
       const patientIdsWithUndispensed = new Set(undispensedPatients.map(p => p.patientId));
@@ -35,7 +36,10 @@ export default function Patients() {
       console.error('Error checking undispensed medications:', error);
       setPatientsWithUndispensedMeds(new Set());
     }
-  };
+  }, []);
+
+  // Listen for refresh events
+  useUndispensedMedicationsRefresh(checkUndispensedMedications);
 
   const fetchPatients = async () => {
     try {

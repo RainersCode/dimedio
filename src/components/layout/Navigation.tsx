@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { AdminService } from '@/lib/admin';
 import { UndispensedMedicationsService } from '@/lib/undispensedMedicationsService';
+import { useUndispensedMedicationsRefresh } from '@/hooks/useUndispensedMedicationsRefresh';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import AuthModal from '@/components/auth/AuthModal';
 import type { UserRole } from '@/types/database';
@@ -44,21 +45,21 @@ export default function Navigation() {
   }, [user]);
 
   // Check for undispensed medications
-  useEffect(() => {
-    const checkUndispensedMeds = async () => {
-      if (user) {
-        try {
-          const { hasAnyUndispensed } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications();
-          setHasUndispensedMeds(hasAnyUndispensed);
-        } catch (error) {
-          console.error('Error checking undispensed medications:', error);
-          setHasUndispensedMeds(false);
-        }
-      } else {
+  const checkUndispensedMeds = useCallback(async () => {
+    if (user) {
+      try {
+        const { hasAnyUndispensed } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications();
+        setHasUndispensedMeds(hasAnyUndispensed);
+      } catch (error) {
+        console.error('Error checking undispensed medications:', error);
         setHasUndispensedMeds(false);
       }
-    };
+    } else {
+      setHasUndispensedMeds(false);
+    }
+  }, [user]);
 
+  useEffect(() => {
     checkUndispensedMeds();
     
     // Re-check every 30 seconds when user is logged in
@@ -70,7 +71,10 @@ export default function Navigation() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [user]);
+  }, [checkUndispensedMeds]);
+
+  // Listen for refresh events
+  useUndispensedMedicationsRefresh(checkUndispensedMeds);
 
   // Close dropdown when clicking outside
   useEffect(() => {

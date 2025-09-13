@@ -10,6 +10,7 @@ import { DiagnosisFormData, UserDrugInventory } from '@/types/database';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { CreditsService } from '@/lib/credits';
 import { DrugInventoryService } from '@/lib/drugInventory';
+import { triggerUndispensedMedicationsRefresh } from '@/hooks/useUndispensedMedicationsRefresh';
 import DiagnosisDebug from './DiagnosisDebug';
 import { DiagnosisExportDropdown } from './DiagnosisExportButtons';
 
@@ -762,6 +763,9 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       }
 
       onDiagnosisComplete?.(diagnosis.id);
+      
+      // Trigger immediate refresh of undispensed medications indicators
+      triggerUndispensedMedicationsRefresh();
 
     } catch (err) {
       console.error('Diagnosis error:', err);

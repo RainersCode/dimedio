@@ -599,7 +599,7 @@ export class DrugDispensingService {
           }
         }
 
-        // Apply inventory reductions
+        // Apply inventory reductions and record usage by drug (consolidated)
         for (const [drugId, totalReduction] of Object.entries(inventoryUpdates)) {
           console.log('🔄 Reducing inventory for drug_id:', drugId, 'by total quantity:', totalReduction);
           
@@ -630,20 +630,35 @@ export class DrugDispensingService {
             
             console.log('✅ Successfully reduced inventory by', totalReduction, 'units for drug_id:', drugId);
             
-            // Record this inventory usage for the usage report
-            const recordForDrug = allRecords.find(r => r.drug_id === drugId);
-            const drugName = recordForDrug?.user_drug_inventory?.drug_name || 
-                            recordForDrug?.patient_info?.drug_name || 
-                            recordForDrug?.drug_name || 
+            // Get drug name and collect patient info for this drug
+            const recordsForThisDrug = allRecords.filter(r => r.drug_id === drugId);
+            const drugName = recordsForThisDrug[0]?.user_drug_inventory?.drug_name || 
+                            recordsForThisDrug[0]?.patient_info?.drug_name || 
+                            recordsForThisDrug[0]?.drug_name || 
                             'Unknown Drug';
+            
+            // Collect unique patient names for this drug
+            const patientNames = new Set<string>();
+            recordsForThisDrug.forEach(record => {
+              if (record.patient_info?.patient_name && record.patient_info.patient_name !== 'Unknown') {
+                patientNames.add(record.patient_info.patient_name);
+              }
+            });
+            
+            // Create consolidated notes with patient summary
+            const patientSummary = patientNames.size > 0 
+              ? `Patients: ${Array.from(patientNames).join(', ')} | `
+              : '';
+            
+            // Record ONE consolidated inventory usage record per drug
             await InventoryUsageService.recordInventoryUsage(
               drugId,
               drugName,
               totalReduction,
               'bulk_deletion',
               undefined,
-              undefined,
-              `Bulk deletion of all dispensing records on ${new Date().toLocaleDateString()}`
+              patientNames.size > 0 ? Array.from(patientNames)[0] : undefined, // Use first patient name for the patient_name field
+              `${patientSummary}Total: ${totalReduction} units from ${recordsForThisDrug.length} dispensing records | Bulk deletion on ${new Date().toLocaleDateString()}`
             );
           }
         }
@@ -688,7 +703,7 @@ export class DrugDispensingService {
     console.log('✅ User authenticated:', user.id);
 
     try {
-      // First check if the record exists
+      // First check if the record exists and get all patient info
       const { data: existingRecord, error: checkError } = await supabase
         .from('drug_usage_history')
         .select(`
@@ -744,14 +759,19 @@ export class DrugDispensingService {
                           existingRecord.patient_info?.drug_name || 
                           existingRecord.drug_name || 
                           'Unknown Drug';
+          
+          // Extract patient information from the existing record
+          const patientName = existingRecord.patient_info?.patient_name || 'Unknown';
+          const diagnosis = existingRecord.patient_info?.primary_diagnosis || 'Unknown';
+          
           await InventoryUsageService.recordInventoryUsage(
             existingRecord.drug_id,
             drugName,
             existingRecord.quantity_dispensed,
             'dispensing_record_deleted',
             existingRecord.id,
-            existingRecord.patient_name,
-            `Deleted dispensing record on ${new Date().toLocaleDateString()}`
+            patientName,
+            `Patient: ${patientName} | Diagnosis: ${diagnosis} | Quantity: ${existingRecord.quantity_dispensed} units | Deleted on ${new Date().toLocaleDateString()}`
           );
         }
       }

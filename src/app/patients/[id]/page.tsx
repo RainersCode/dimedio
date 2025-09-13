@@ -5,6 +5,7 @@ import { PatientService } from '@/lib/patientService';
 import { DrugDispensingService } from '@/lib/drugDispensingService';
 import { DrugInventoryService } from '@/lib/drugInventory';
 import { DatabaseService } from '@/lib/database';
+import { triggerUndispensedMedicationsRefresh } from '@/hooks/useUndispensedMedicationsRefresh';
 import { PatientProfile, Diagnosis, UserDrugInventory } from '@/types/database';
 import { useState, useEffect } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
@@ -223,6 +224,9 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
             recordedDispensings.push(diagnosis.id);
             localStorage.setItem('recordedDispensings', JSON.stringify(recordedDispensings));
           }
+          
+          // Trigger immediate refresh of undispensed medications indicators
+          triggerUndispensedMedicationsRefresh();
         }
       } else {
         console.warn('No dispensings recorded - could not match any inventory drugs');
@@ -303,6 +307,9 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
           individualDispensed.push(drugKey);
           localStorage.setItem('individualDrugDispensed', JSON.stringify(individualDispensed));
         }
+        
+        // Trigger immediate refresh of undispensed medications indicators
+        triggerUndispensedMedicationsRefresh();
       }
     } catch (err) {
       console.error('Error recording individual drug dispensing:', err);
