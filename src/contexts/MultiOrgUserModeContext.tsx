@@ -166,10 +166,12 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
 
   // Switch to individual mode
   const switchToIndividualMode = useCallback(async (): Promise<{ error: string | null }> => {
+    console.log('Switching to individual mode...');
     try {
       setActiveMode('individual');
       setActiveOrganization(null);
       savePreferences('individual');
+      console.log('Successfully switched to individual mode');
       return { error: null };
     } catch (err) {
       console.error('Error switching to individual mode:', err);
@@ -179,7 +181,14 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
 
   // Switch to organization mode (use first available org if no specific org provided)
   const switchToOrganizationMode = useCallback(async (organizationId?: string): Promise<{ error: string | null }> => {
+    console.log('Switching to organization mode...', {
+      organizationId,
+      membershipStatus,
+      allOrganizations: allOrganizations.length
+    });
+
     if (membershipStatus !== 'multi_organization' || allOrganizations.length === 0) {
+      console.log('Cannot switch to organization mode:', { membershipStatus, orgCount: allOrganizations.length });
       return { error: 'You must be a member of an organization to use organization mode' };
     }
 
@@ -189,6 +198,7 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
       if (organizationId) {
         const requestedOrg = allOrganizations.find(org => org.organization_id === organizationId);
         if (!requestedOrg) {
+          console.log('Requested organization not found:', organizationId);
           return { error: 'You are not a member of the specified organization' };
         }
         targetOrg = requestedOrg;
@@ -197,9 +207,11 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
         targetOrg = allOrganizations[0];
       }
 
+      console.log('Setting active organization:', targetOrg.organization_id);
       setActiveMode('organization');
       setActiveOrganization(targetOrg);
       savePreferences('organization', targetOrg.organization_id);
+      console.log('Successfully switched to organization mode');
       return { error: null };
     } catch (err) {
       console.error('Error switching to organization mode:', err);
@@ -244,6 +256,19 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
   const organization = activeOrganization?.organization || null;
   const member = activeOrganization || null;
   const organizationId = activeOrganization?.organization_id || null;
+
+  // Debug logging
+  React.useEffect(() => {
+    console.log('MultiOrgUserModeContext state:', {
+      membershipStatus,
+      activeMode,
+      allOrganizations: allOrganizations.length,
+      activeOrganization: activeOrganization?.organization_id,
+      organizationId,
+      loading,
+      error
+    });
+  }, [membershipStatus, activeMode, allOrganizations.length, activeOrganization?.organization_id, organizationId, loading, error]);
 
   // Mode switching capabilities
   const canSwitchToOrganization = allOrganizations.length > 0 && activeMode !== 'organization';

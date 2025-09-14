@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 import { ModeAwareDrugInventoryService } from '@/lib/modeAwareDrugInventoryService';
@@ -54,9 +54,33 @@ export default function DrugInventoryPage() {
   // Reload data when active mode changes
   useEffect(() => {
     if (hasAccess) {
-      loadData();
+      const reloadData = async () => {
+        console.log('Loading data with:', { activeMode, organizationId });
+
+        const [drugsResult, categoriesResult] = await Promise.all([
+          ModeAwareDrugInventoryService.getDrugInventory(activeMode, organizationId),
+          ModeAwareDrugInventoryService.getDrugCategories(),
+        ]);
+
+        console.log('Drugs result:', drugsResult);
+
+        if (drugsResult.error) {
+          setError(drugsResult.error);
+        } else {
+          setDrugs(drugsResult.data || []);
+          setCurrentMode(drugsResult.mode);
+        }
+
+        if (categoriesResult.error) {
+          setError(categoriesResult.error);
+        } else {
+          setCategories(categoriesResult.data || []);
+        }
+      };
+
+      reloadData();
     }
-  }, [activeMode, organizationId]);
+  }, [activeMode, organizationId, hasAccess]);
 
   const checkAccess = async () => {
     const { hasAccess: accessGranted, error } = await ModeAwareDrugInventoryService.checkDrugInventoryAccess();
@@ -64,14 +88,10 @@ export default function DrugInventoryPage() {
       setError(error);
     }
     setHasAccess(accessGranted);
-
-    if (accessGranted) {
-      await loadData();
-    }
     setLoading(false);
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     console.log('Loading data with:', { activeMode, organizationId });
 
     const [drugsResult, categoriesResult] = await Promise.all([
@@ -93,7 +113,7 @@ export default function DrugInventoryPage() {
     } else {
       setCategories(categoriesResult.data || []);
     }
-  };
+  }, [activeMode, organizationId]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
@@ -222,7 +242,7 @@ export default function DrugInventoryPage() {
     setError(null);
 
     try {
-      const { error, deletedCount } = await DrugInventoryService.deleteAllDrugsFromInventory();
+      const { error, deletedCount } = await ModeAwareDrugInventoryService.deleteAllDrugs(activeMode, organizationId);
       
       if (error) {
         setError(error);

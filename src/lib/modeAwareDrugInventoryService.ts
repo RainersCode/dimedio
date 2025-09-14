@@ -62,6 +62,13 @@ export class ModeAwareDrugInventoryService {
     error: string | null;
     mode: 'individual' | 'organization';
   }> {
+    console.log('ModeAwareDrugInventoryService.getDrugInventory called with:', {
+      activeMode,
+      organizationId,
+      organizationIdType: typeof organizationId,
+      organizationIdTruthy: !!organizationId
+    });
+
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {
@@ -70,10 +77,17 @@ export class ModeAwareDrugInventoryService {
 
     try {
       if (activeMode === 'organization' && organizationId) {
+        console.log('Using organization inventory for orgId:', organizationId);
         // Use organization inventory
         const { data: orgData, error: orgError } = await OrganizationDrugInventoryService.getOrganizationDrugInventory(organizationId);
+        console.log('Organization inventory result:', { data: orgData?.length || 0, error: orgError });
         return { data: orgData, error: orgError, mode: 'organization' };
       } else {
+        console.log('Using individual inventory because:', {
+          activeMode,
+          organizationId,
+          condition: `activeMode !== 'organization' OR !organizationId`
+        });
         // Use individual inventory
         const { data, error } = await supabase
           .from('user_drug_inventory')
@@ -363,6 +377,88 @@ export class ModeAwareDrugInventoryService {
     } catch (error) {
       console.error('Error getting drug suggestions:', error);
       return { data: null, error: 'Failed to get drug suggestions', mode: 'individual' };
+    }
+  }
+
+  // Delete all drugs from inventory based on active mode
+  static async deleteAllDrugs(
+    activeMode: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{
+    error: string | null;
+    deletedCount: number;
+    mode: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { error: 'User not authenticated', deletedCount: 0, mode: 'individual' };
+    }
+
+    try {
+      if (activeMode === 'organization' && organizationId) {
+        // Delete all organization drugs
+        // First get the count
+        const { count } = await supabase
+          .from('organization_drug_inventory')
+          .select('*', { count: 'exact', head: true })
+          .eq('organization_id', organizationId)
+          .eq('is_active', true);
+
+        const drugCount = count || 0;
+
+        if (drugCount === 0) {
+          return { error: null, deletedCount: 0, mode: 'organization' };
+        }
+
+        // Soft delete all drugs in organization inventory
+        const { error } = await supabase
+          .from('organization_drug_inventory')
+          .update({
+            is_active: false,
+            updated_by: user.id
+          })
+          .eq('organization_id', organizationId)
+          .eq('is_active', true);
+
+        if (error) {
+          console.error('Error deleting all organization drugs:', error);
+          return { error: error.message, deletedCount: 0, mode: 'organization' };
+        }
+
+        return { error: null, deletedCount: drugCount, mode: 'organization' };
+      } else {
+        // Delete all individual user drugs
+        // First get the count
+        const { count } = await supabase
+          .from('user_drug_inventory')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_active', true);
+
+        const drugCount = count || 0;
+
+        if (drugCount === 0) {
+          return { error: null, deletedCount: 0, mode: 'individual' };
+        }
+
+        // Soft delete all drugs in user inventory
+        const { error } = await supabase
+          .from('user_drug_inventory')
+          .update({ is_active: false })
+          .eq('user_id', user.id)
+          .eq('is_active', true);
+
+        if (error) {
+          console.error('Error deleting all user drugs:', error);
+          return { error: error.message, deletedCount: 0, mode: 'individual' };
+        }
+
+        return { error: null, deletedCount: drugCount, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error deleting all drugs:', error);
+      return { error: 'Failed to delete all drugs', deletedCount: 0, mode: 'individual' };
     }
   }
 }

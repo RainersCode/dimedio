@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { MultiOrganizationService } from './multiOrganizationService';
+import { OrganizationService } from './organizationService';
 import type { OrganizationDrugInventory } from '@/types/organization';
 import type { DrugInventoryFormData } from '@/types/database';
 
