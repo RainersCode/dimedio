@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
-import { useUserMode } from '@/contexts/UserModeContext';
+import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 import { DatabaseService, N8nService } from '@/lib/database';
 import { ModeAwarePatientService } from '@/lib/modeAwarePatientService';
 import { ModeAwareDiagnosisService } from '@/lib/modeAwareDiagnosisService';
@@ -24,7 +24,7 @@ interface DiagnosisFormProps {
 
 export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = '' }: DiagnosisFormProps) {
   const { user } = useSupabaseAuth();
-  const { activeMode, organizationId } = useUserMode();
+  const { activeMode, organizationId } = useMultiOrgUserMode();
   const { t } = useLanguage();
   const router = useRouter();
   

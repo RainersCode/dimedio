@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { OrganizationService } from './organizationService';
+import { MultiOrganizationService } from './multiOrganizationService';
 import type { OrganizationDrugInventory } from '@/types/organization';
 import type { DrugInventoryFormData } from '@/types/database';
 
@@ -8,7 +8,7 @@ export class OrganizationDrugInventoryService {
   // INVENTORY MANAGEMENT
   // =====================================================
 
-  static async getOrganizationDrugInventory(organizationId?: string): Promise<{
+  static async getOrganizationDrugInventory(organizationId: string): Promise<{
     data: OrganizationDrugInventory[] | null;
     error: string | null;
   }> {
@@ -18,21 +18,7 @@ export class OrganizationDrugInventoryService {
     }
 
     try {
-      let targetOrgId = organizationId;
-
-      // If no organizationId provided, get user's organization
-      if (!targetOrgId) {
-        const { data: modeInfo, error: modeError } = await OrganizationService.getUserModeInfo(user.id);
-        if (modeError) {
-          return { data: null, error: modeError };
-        }
-
-        if (modeInfo?.mode !== 'organization' || !modeInfo.organization) {
-          return { data: null, error: 'User is not in organization mode' };
-        }
-
-        targetOrgId = modeInfo.organization.id;
-      }
+      const targetOrgId = organizationId;
 
       const { data, error } = await supabase
         .from('organization_drug_inventory')
@@ -54,7 +40,7 @@ export class OrganizationDrugInventoryService {
 
   static async addDrugToOrganizationInventory(
     drugData: DrugInventoryFormData,
-    organizationId?: string
+    organizationId: string
   ): Promise<{ data: OrganizationDrugInventory | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -62,40 +48,39 @@ export class OrganizationDrugInventoryService {
     }
 
     try {
-      let targetOrgId = organizationId;
+      const targetOrgId = organizationId;
 
-      // If no organizationId provided, get user's organization
-      if (!targetOrgId) {
-        const { data: modeInfo, error: modeError } = await OrganizationService.getUserModeInfo(user.id);
-        if (modeError) {
-          return { data: null, error: modeError };
-        }
+      // Permissions are handled by RLS policies
 
-        if (modeInfo?.mode !== 'organization' || !modeInfo.organization) {
-          return { data: null, error: 'User is not in organization mode' };
-        }
-
-        targetOrgId = modeInfo.organization.id;
-      }
-
-      // Check if user has permission to manage inventory
-      const { data: canManage, error: permError } = await OrganizationService.hasPermission(user.id, 'manage_inventory');
-      if (permError) {
-        return { data: null, error: permError };
-      }
-
-      if (!canManage) {
-        return { data: null, error: 'You do not have permission to manage inventory' };
-      }
+      // Sanitize the drug data to handle undefined values
+      const sanitizedData = {
+        organization_id: targetOrgId,
+        drug_name: drugData.drug_name,
+        drug_name_lv: drugData.drug_name_lv || null,
+        generic_name: drugData.generic_name || null,
+        brand_name: drugData.brand_name || null,
+        category_id: (drugData.category_id && drugData.category_id.trim() !== '') ? drugData.category_id : null,
+        dosage_form: drugData.dosage_form || null,
+        strength: drugData.strength || null,
+        active_ingredient: drugData.active_ingredient || null,
+        indications: drugData.indications || [],
+        contraindications: drugData.contraindications || [],
+        dosage_adults: drugData.dosage_adults || null,
+        dosage_children: drugData.dosage_children || null,
+        stock_quantity: drugData.stock_quantity || 0,
+        unit_price: drugData.unit_price || null,
+        supplier: drugData.supplier || null,
+        batch_number: drugData.batch_number || null,
+        expiry_date: drugData.expiry_date || null,
+        is_prescription_only: drugData.is_prescription_only || false,
+        notes: drugData.notes || null,
+        created_by: user.id,
+        updated_by: user.id
+      };
 
       const { data, error } = await supabase
         .from('organization_drug_inventory')
-        .insert([{
-          organization_id: targetOrgId,
-          ...drugData,
-          created_by: user.id,
-          updated_by: user.id
-        }])
+        .insert([sanitizedData])
         .select()
         .single();
 
@@ -120,15 +105,7 @@ export class OrganizationDrugInventoryService {
     }
 
     try {
-      // Check if user has permission to manage inventory
-      const { data: canManage, error: permError } = await OrganizationService.hasPermission(user.id, 'manage_inventory');
-      if (permError) {
-        return { data: null, error: permError };
-      }
-
-      if (!canManage) {
-        return { data: null, error: 'You do not have permission to manage inventory' };
-      }
+      // Permissions are handled by RLS policies
 
       const { data, error } = await supabase
         .from('organization_drug_inventory')
@@ -190,7 +167,7 @@ export class OrganizationDrugInventoryService {
 
   static async searchOrganizationDrugs(
     searchQuery: string,
-    organizationId?: string
+    organizationId: string
   ): Promise<{ data: OrganizationDrugInventory[] | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -198,20 +175,7 @@ export class OrganizationDrugInventoryService {
     }
 
     try {
-      let targetOrgId = organizationId;
-
-      if (!targetOrgId) {
-        const { data: modeInfo, error: modeError } = await OrganizationService.getUserModeInfo(user.id);
-        if (modeError) {
-          return { data: null, error: modeError };
-        }
-
-        if (modeInfo?.mode !== 'organization' || !modeInfo.organization) {
-          return { data: null, error: 'User is not in organization mode' };
-        }
-
-        targetOrgId = modeInfo.organization.id;
-      }
+      const targetOrgId = organizationId;
 
       const { data, error } = await supabase
         .from('organization_drug_inventory')
@@ -316,15 +280,7 @@ export class OrganizationDrugInventoryService {
     }
 
     try {
-      // Check permission to write off drugs
-      const { data: canWriteOff, error: permError } = await OrganizationService.canWriteOffDrugs(user.id);
-      if (permError) {
-        return { error: permError };
-      }
-
-      if (!canWriteOff) {
-        return { error: 'You do not have permission to write off drugs' };
-      }
+      // Permissions are handled by RLS policies
 
       // Use updateDrugStock with negative quantity
       const { error: stockError } = await this.updateDrugStock(drugId, -quantity, reason);
@@ -344,7 +300,7 @@ export class OrganizationDrugInventoryService {
   // =====================================================
 
   static async getOrganizationUsageHistory(
-    organizationId?: string,
+    organizationId: string,
     startDate?: string,
     endDate?: string
   ): Promise<{
@@ -357,20 +313,7 @@ export class OrganizationDrugInventoryService {
     }
 
     try {
-      let targetOrgId = organizationId;
-
-      if (!targetOrgId) {
-        const { data: modeInfo, error: modeError } = await OrganizationService.getUserModeInfo(user.id);
-        if (modeError) {
-          return { data: null, error: modeError };
-        }
-
-        if (modeInfo?.mode !== 'organization' || !modeInfo.organization) {
-          return { data: null, error: 'User is not in organization mode' };
-        }
-
-        targetOrgId = modeInfo.organization.id;
-      }
+      const targetOrgId = organizationId;
 
       let query = supabase
         .from('organization_drug_usage_history')
@@ -405,7 +348,7 @@ export class OrganizationDrugInventoryService {
 
   static async getLowStockDrugs(
     threshold: number = 10,
-    organizationId?: string
+    organizationId: string
   ): Promise<{ data: OrganizationDrugInventory[] | null; error: string | null }> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -413,20 +356,7 @@ export class OrganizationDrugInventoryService {
     }
 
     try {
-      let targetOrgId = organizationId;
-
-      if (!targetOrgId) {
-        const { data: modeInfo, error: modeError } = await OrganizationService.getUserModeInfo(user.id);
-        if (modeError) {
-          return { data: null, error: modeError };
-        }
-
-        if (modeInfo?.mode !== 'organization' || !modeInfo.organization) {
-          return { data: null, error: 'User is not in organization mode' };
-        }
-
-        targetOrgId = modeInfo.organization.id;
-      }
+      const targetOrgId = organizationId;
 
       const { data, error } = await supabase
         .from('organization_drug_inventory')
@@ -445,5 +375,26 @@ export class OrganizationDrugInventoryService {
       console.error('Error fetching low stock drugs:', error);
       return { data: null, error: 'Failed to fetch low stock drugs' };
     }
+  }
+
+  // Alias for compatibility with ModeAwareDrugInventoryService
+  static async addDrug(
+    drugData: DrugInventoryFormData & { organization_id: string }
+  ): Promise<{ data: OrganizationDrugInventory | null; error: string | null }> {
+    const { organization_id, ...drugFormData } = drugData;
+    return this.addDrugToOrganizationInventory(drugFormData, organization_id);
+  }
+
+  // Alias for compatibility with ModeAwareDrugInventoryService
+  static async updateDrug(
+    drugId: string,
+    updates: Partial<DrugInventoryFormData>
+  ): Promise<{ data: OrganizationDrugInventory | null; error: string | null }> {
+    return this.updateOrganizationDrug(drugId, updates);
+  }
+
+  // Alias for compatibility with ModeAwareDrugInventoryService
+  static async deleteDrug(drugId: string): Promise<{ error: string | null }> {
+    return this.deleteOrganizationDrug(drugId);
   }
 }

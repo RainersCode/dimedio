@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { DrugInventoryService } from '@/lib/drugInventory';
+import { ModeAwareDrugInventoryService } from '@/lib/modeAwareDrugInventoryService';
+import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 import type { DrugCategory, DrugInventoryFormData } from '@/types/database';
 
 interface AddDrugModalProps {
@@ -11,6 +12,7 @@ interface AddDrugModalProps {
 }
 
 export default function AddDrugModal({ categories, onClose, onSuccess }: AddDrugModalProps) {
+  const { activeMode, organizationId } = useMultiOrgUserMode();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<DrugInventoryFormData>({
@@ -48,8 +50,12 @@ export default function AddDrugModal({ categories, onClose, onSuccess }: AddDrug
     }
 
     try {
-      const { error } = await DrugInventoryService.addDrugToInventory(formData);
-      
+      const { error } = await ModeAwareDrugInventoryService.addDrug(
+        formData,
+        activeMode,
+        organizationId
+      );
+
       if (error) {
         setError(error);
       } else {

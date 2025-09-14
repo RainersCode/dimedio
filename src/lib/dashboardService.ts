@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { ModeAwareDrugInventoryService } from './modeAwareDrugInventoryService';
 import { ModeAwarePatientService } from './modeAwarePatientService';
 import { ModeAwareDiagnosisService } from './modeAwareDiagnosisService';
-import type { UserWorkingMode } from '@/contexts/UserModeContext';
+import type { UserWorkingMode } from '@/contexts/MultiOrgUserModeContext';
 
 export interface DashboardStats {
   // Core metrics

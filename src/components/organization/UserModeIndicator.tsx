@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUserMode } from '@/contexts/UserModeContext';
+import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 import { OrganizationService } from '@/lib/organizationService';
 
 interface UserModeIndicatorProps {
@@ -25,7 +25,7 @@ export default function UserModeIndicator({
     switchToOrganizationMode,
     switchToIndividualMode,
     loading
-  } = useUserMode();
+  } = useMultiOrgUserMode();
   const [switching, setSwitching] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const router = useRouter();

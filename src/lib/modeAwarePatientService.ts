@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { OrganizationPatientService } from './organizationPatientService';
 import type { PatientProfile, Diagnosis } from '@/types/database';
 import type { OrganizationPatient, OrganizationDiagnosis } from '@/types/organization';
-import type { UserWorkingMode } from '@/contexts/UserModeContext';
+import type { UserWorkingMode } from '@/contexts/MultiOrgUserModeContext';
 
 export class ModeAwarePatientService {
   // Create or update a patient profile from diagnosis data based on active mode

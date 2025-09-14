@@ -11,7 +11,7 @@ import type {
   OrganizationDiagnosis,
   OrganizationDiagnosisRequest
 } from '@/types/organization';
-import type { UserWorkingMode } from '@/contexts/UserModeContext';
+import type { UserWorkingMode } from '@/contexts/MultiOrgUserModeContext';
 
 export class ModeAwareDiagnosisService {
   // Create diagnosis based on active mode

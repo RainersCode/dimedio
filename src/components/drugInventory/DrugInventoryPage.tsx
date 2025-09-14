@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useUserMode } from '@/contexts/UserModeContext';
+import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 import { ModeAwareDrugInventoryService } from '@/lib/modeAwareDrugInventoryService';
 import { formatDrugName, getDrugStockStatus, isNearExpiry } from '@/lib/drugInventory';
 import { DrugInventoryExportService } from '@/lib/drugInventoryExport';
@@ -17,7 +17,7 @@ import ImportDrugsModal from './ImportDrugsModal';
 
 export default function DrugInventoryPage() {
   const { t } = useLanguage();
-  const { activeMode, organizationId } = useUserMode();
+  const { activeMode, organizationId } = useMultiOrgUserMode();
   const permissions = useOrganizationPermissions();
   const [drugs, setDrugs] = useState<(UserDrugInventory | OrganizationDrugInventory)[]>([]);
   const [categories, setCategories] = useState<DrugCategory[]>([]);
@@ -42,6 +42,15 @@ export default function DrugInventoryPage() {
     checkAccess();
   }, []);
 
+  // Debug logging
+  useEffect(() => {
+    console.log('DrugInventoryPage - Mode/Org changed:', {
+      activeMode,
+      organizationId,
+      hasAccess
+    });
+  }, [activeMode, organizationId, hasAccess]);
+
   // Reload data when active mode changes
   useEffect(() => {
     if (hasAccess) {
@@ -63,10 +72,14 @@ export default function DrugInventoryPage() {
   };
 
   const loadData = async () => {
+    console.log('Loading data with:', { activeMode, organizationId });
+
     const [drugsResult, categoriesResult] = await Promise.all([
       ModeAwareDrugInventoryService.getDrugInventory(activeMode, organizationId),
       ModeAwareDrugInventoryService.getDrugCategories(),
     ]);
+
+    console.log('Drugs result:', drugsResult);
 
     if (drugsResult.error) {
       setError(drugsResult.error);
@@ -89,12 +102,17 @@ export default function DrugInventoryPage() {
     }
 
     setLoading(true);
-    const { data, error } = await DrugInventoryService.searchDrugs(searchQuery);
-    
+    const { data, error, mode } = await ModeAwareDrugInventoryService.searchDrugs(
+      searchQuery,
+      activeMode,
+      organizationId
+    );
+
     if (error) {
       setError(error);
     } else {
       setDrugs(data || []);
+      setCurrentMode(mode);
     }
     setLoading(false);
   };
@@ -104,7 +122,11 @@ export default function DrugInventoryPage() {
       return;
     }
 
-    const { error } = await DrugInventoryService.deleteDrugFromInventory(drugId);
+    const { error } = await ModeAwareDrugInventoryService.deleteDrug(
+      drugId,
+      activeMode,
+      organizationId
+    );
     if (error) {
       setError(error);
     } else {

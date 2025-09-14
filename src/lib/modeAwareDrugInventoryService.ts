@@ -9,7 +9,7 @@ import type {
   DrugInteraction
 } from '@/types/database';
 import type { OrganizationDrugInventory } from '@/types/organization';
-import type { UserWorkingMode } from '@/contexts/UserModeContext';
+import type { UserWorkingMode } from '@/contexts/MultiOrgUserModeContext';
 
 export class ModeAwareDrugInventoryService {
   // Check if user has access to drug inventory (premium feature)
@@ -124,15 +124,34 @@ export class ModeAwareDrugInventoryService {
         return { data: orgData, error: orgError, mode: 'organization' };
       } else {
         // Use individual inventory
+        // Sanitize the drug data to handle undefined values
+        const sanitizedData = {
+          user_id: user.id,
+          drug_name: drugData.drug_name,
+          drug_name_lv: drugData.drug_name_lv || null,
+          generic_name: drugData.generic_name || null,
+          brand_name: drugData.brand_name || null,
+          category_id: (drugData.category_id && drugData.category_id.trim() !== '') ? drugData.category_id : null,
+          dosage_form: drugData.dosage_form || null,
+          strength: drugData.strength || null,
+          active_ingredient: drugData.active_ingredient || null,
+          indications: drugData.indications || [],
+          contraindications: drugData.contraindications || [],
+          dosage_adults: drugData.dosage_adults || null,
+          dosage_children: drugData.dosage_children || null,
+          stock_quantity: drugData.stock_quantity || 0,
+          unit_price: drugData.unit_price || null,
+          supplier: drugData.supplier || null,
+          batch_number: drugData.batch_number || null,
+          expiry_date: drugData.expiry_date || null,
+          is_prescription_only: drugData.is_prescription_only || false,
+          notes: drugData.notes || null,
+          is_active: true
+        };
+
         const { data, error } = await supabase
           .from('user_drug_inventory')
-          .insert([{
-            ...drugData,
-            user_id: user.id,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }])
+          .insert([sanitizedData])
           .select(`
             *,
             category:drug_categories(*)
@@ -238,6 +257,57 @@ export class ModeAwareDrugInventoryService {
     } catch (error) {
       console.error('Error deleting drug:', error);
       return { error: 'Failed to delete drug', mode: 'individual' };
+    }
+  }
+
+  // Search drugs by query based on active mode
+  static async searchDrugs(
+    query: string,
+    activeMode: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{
+    data: (UserDrugInventory | OrganizationDrugInventory)[] | null;
+    error: string | null;
+    mode: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated', mode: 'individual' };
+    }
+
+    if (!query.trim()) {
+      return { data: [], error: null, mode: activeMode === 'organization' ? 'organization' : 'individual' };
+    }
+
+    try {
+      if (activeMode === 'organization' && organizationId) {
+        // Use organization inventory search
+        const { data: orgData, error: orgError } = await OrganizationDrugInventoryService.searchOrganizationDrugs(query, organizationId);
+        return { data: orgData, error: orgError, mode: 'organization' };
+      } else {
+        // Use individual inventory search
+        const { data, error } = await supabase
+          .from('user_drug_inventory')
+          .select(`
+            *,
+            category:drug_categories(*)
+          `)
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .or(`drug_name.ilike.%${query}%,generic_name.ilike.%${query}%,brand_name.ilike.%${query}%`)
+          .order('drug_name', { ascending: true });
+
+        if (error) {
+          console.error('Error searching drugs:', error);
+          return { data: null, error: error.message, mode: 'individual' };
+        }
+
+        return { data, error: null, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error searching drugs:', error);
+      return { data: null, error: 'Failed to search drugs', mode: 'individual' };
     }
   }
 
