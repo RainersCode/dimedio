@@ -9,6 +9,7 @@ import { DrugInventoryExportService } from '@/lib/drugInventoryExport';
 import { useOrganizationPermissions } from '@/hooks/useOrganizationPermissions';
 import { ManageInventoryGuard, WriteOffGuard } from '@/components/organization/PermissionGuard';
 import UserModeIndicator from '@/components/organization/UserModeIndicator';
+import OrganizationSelector from './OrganizationSelector';
 import type { UserDrugInventory, DrugCategory } from '@/types/database';
 import type { OrganizationDrugInventory } from '@/types/organization';
 import AddDrugModal from './AddDrugModal';
@@ -380,20 +381,20 @@ export default function DrugInventoryPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-            <div>
-              <h1 className="text-3xl font-light text-slate-900 mb-2">Drug Inventory Management</h1>
-              <p className="text-slate-600">
-                {permissions.userMode === 'organization'
-                  ? 'Manage your organization\'s shared drug inventory and integrate with diagnosis suggestions'
-                  : 'Manage your clinic\'s drug inventory and integrate with diagnosis suggestions'
-                }
-              </p>
-            </div>
-            <div className="lg:w-80">
-              <UserModeIndicator compact />
-            </div>
+          <div className="mb-6">
+            <h1 className="text-3xl font-light text-slate-900 mb-2">Drug Inventory Management</h1>
+            <p className="text-slate-600">
+              {permissions.userMode === 'organization'
+                ? 'Manage your organization\'s shared drug inventory and integrate with diagnosis suggestions'
+                : 'Manage your clinic\'s drug inventory and integrate with diagnosis suggestions'
+              }
+            </p>
           </div>
+
+          <OrganizationSelector
+            onError={setError}
+            onSuccess={setSuccessMessage}
+          />
         </div>
 
         {/* Error Alert */}

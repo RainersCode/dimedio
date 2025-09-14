@@ -1,17 +1,46 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { OrganizationService } from '@/lib/organizationService';
 
 interface JoinOrganizationModalProps {
+  isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
-  onError: (error: string) => void;
+  onSuccess?: () => void;
+  onError?: (error: string) => void;
 }
 
-export default function JoinOrganizationModal({ onClose, onSuccess, onError }: JoinOrganizationModalProps) {
+export default function JoinOrganizationModal({ isOpen, onClose, onSuccess, onError }: JoinOrganizationModalProps) {
   const [invitationLink, setInvitationLink] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Ensure component is mounted (client-side)
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Reset form when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setInvitationLink('');
+      setLoading(false);
+    }
+  }, [isOpen]);
+
+  // Prevent body scroll when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen]);
 
   const extractTokenFromLink = (link: string): string | null => {
     try {
@@ -30,7 +59,7 @@ export default function JoinOrganizationModal({ onClose, onSuccess, onError }: J
 
     const token = extractTokenFromLink(invitationLink);
     if (!token) {
-      onError('Invalid invitation link or token');
+      onError?.('Invalid invitation link or token');
       return;
     }
 
@@ -38,37 +67,87 @@ export default function JoinOrganizationModal({ onClose, onSuccess, onError }: J
     try {
       const { data, error } = await OrganizationService.acceptInvitation(token);
       if (error) {
-        onError(error);
+        onError?.(error);
       } else {
-        onSuccess();
+        onSuccess?.();
+        onClose();
       }
     } catch (error) {
-      onError('Failed to join organization');
+      onError?.('Failed to join organization');
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-        <form onSubmit={handleSubmit}>
-          <div className="p-6">
-            <div className="flex items-center mb-4">
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-                <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                </svg>
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
+  if (!isOpen || !mounted) return null;
+
+  const modalContent = (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[10000]"
+        onClick={handleBackdropClick}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+        }}
+      />
+
+      {/* Modal */}
+      <div
+        className="fixed inset-0 z-[10001] overflow-y-auto"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+        }}
+      >
+        <div className="flex min-h-full items-center justify-center p-4 text-center">
+          <div
+            className="w-full max-w-md sm:max-w-lg lg:max-w-xl transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center">
+                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
+                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900">Join Organization</h3>
               </div>
-              <h3 className="text-lg font-semibold text-slate-900">Join Organization</h3>
+              <button
+                onClick={onClose}
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+                disabled={loading}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
 
+            {/* Description */}
             <p className="text-sm text-slate-600 mb-6">
-              Enter your invitation link or token to join an existing organization.
-              You'll gain access to shared resources and be able to collaborate with team members.
+              Enter an invitation link or token to join an organization. You'll get access to shared resources
+              and be able to collaborate with other members.
             </p>
 
-            <div className="space-y-4">
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Invitation Input */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
                   Invitation Link or Token <span className="text-red-500">*</span>
@@ -77,54 +156,48 @@ export default function JoinOrganizationModal({ onClose, onSuccess, onError }: J
                   type="text"
                   value={invitationLink}
                   onChange={(e) => setInvitationLink(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
                   placeholder="Paste invitation link or enter token"
                   required
+                  disabled={loading}
                 />
-                <p className="text-xs text-slate-500 mt-1">
-                  You should have received this from an organization administrator
+                <p className="text-xs text-slate-500 mt-2">
+                  You can paste the full invitation link or just the token from the email
                 </p>
               </div>
-            </div>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mt-6">
-              <div className="flex">
-                <svg className="w-5 h-5 text-amber-400 mt-0.5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L5.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
-                <div>
-                  <h4 className="text-sm font-medium text-amber-800">Important</h4>
-                  <p className="text-sm text-amber-700 mt-1">
-                    Joining an organization will switch you from individual mode to organization mode.
-                    You'll share resources with other members and follow organization permissions.
-                  </p>
-                </div>
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  disabled={loading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+                  disabled={loading || !invitationLink.trim()}
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                      Joining...
+                    </>
+                  ) : (
+                    'Join Organization'
+                  )}
+                </button>
               </div>
-            </div>
+            </form>
           </div>
-
-          <div className="flex justify-end space-x-3 px-6 py-4 bg-slate-50 rounded-b-lg">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || !invitationLink.trim()}
-              className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center"
-            >
-              {loading && (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-              )}
-              Join Organization
-            </button>
-          </div>
-        </form>
+        </div>
       </div>
-    </div>
+    </>
   );
+
+  // Use createPortal to render the modal at the document root level
+  return createPortal(modalContent, document.body);
 }

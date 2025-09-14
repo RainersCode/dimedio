@@ -8,7 +8,6 @@ import { DashboardService, DashboardStats, DashboardActivity } from '@/lib/dashb
 import ModeDemo from './ModeDemo';
 import OrganizationDropdown from './OrganizationDropdown';
 import OrganizationStatusCard from './OrganizationStatusCard';
-import OrganizationSwitcher from './OrganizationSwitcher';
 import OrganizationContainerSwitcher from './OrganizationContainerSwitcher';
 
 export default function DashboardPage() {
@@ -192,14 +191,6 @@ export default function DashboardPage() {
             {/* Multi-Organization Controls */}
             <div className="flex flex-col sm:flex-row items-center gap-4">
 
-              {/* Organization Switcher - Main Control */}
-              <OrganizationSwitcher
-                onError={setError}
-                onSuccess={(message) => {
-                  setError(null);
-                  // Dashboard data will refresh automatically due to useEffect dependency on organizationId
-                }}
-              />
 
               {/* Organization Management Dropdown */}
               <OrganizationDropdown
