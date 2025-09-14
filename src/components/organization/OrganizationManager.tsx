@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
+import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 import { OrganizationService } from '@/lib/organizationService';
 import type { Organization, OrganizationMember, UserModeInfo } from '@/types/organization';
 import CreateOrganizationModal from './CreateOrganizationModal';
@@ -11,8 +12,17 @@ import JoinOrganizationModal from './JoinOrganizationModal';
 
 export default function OrganizationManager() {
   const { user } = useSupabaseAuth();
-  const [userModeInfo, setUserModeInfo] = useState<UserModeInfo | null>(null);
-  const [loading, setLoading] = useState(true);
+  const {
+    membershipStatus,
+    activeMode,
+    allOrganizations,
+    activeOrganization,
+    organization,
+    member,
+    loading: modeLoading,
+    refreshModeInfo
+  } = useMultiOrgUserMode();
+
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -23,24 +33,13 @@ export default function OrganizationManager() {
   // Active tab
   const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'settings'>('overview');
 
-  useEffect(() => {
-    if (user) {
-      loadUserMode();
-    }
-  }, [user]);
+  // For managing specific organization (when user has multiple)
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
 
-  const loadUserMode = async () => {
-    setLoading(true);
-    setError(null);
-
-    const { data, error: modeError } = await OrganizationService.getUserModeInfo();
-    if (modeError) {
-      setError(modeError);
-    } else {
-      setUserModeInfo(data);
-    }
-    setLoading(false);
-  };
+  // Get the organization to display (either selected one or active one)
+  const displayOrganization = selectedOrgId
+    ? allOrganizations.find(org => org.organization_id === selectedOrgId)
+    : activeOrganization;
 
   const handleCreateOrganization = async (name: string, description?: string) => {
     const { data, error: createError } = await OrganizationService.createOrganization(name, description);
@@ -49,9 +48,27 @@ export default function OrganizationManager() {
     } else {
       setSuccessMessage(`Organization "${name}" created successfully!`);
       setShowCreateModal(false);
-      await loadUserMode(); // Refresh user mode
 
-      // Clear success message after 5 seconds
+      // Multiple refresh attempts to ensure context updates
+      try {
+        await refreshModeInfo();
+
+        setTimeout(async () => {
+          await refreshModeInfo();
+
+          // Final check - if still individual after 2 seconds, force reload
+          setTimeout(() => {
+            if (membershipStatus === 'individual') {
+              setSuccessMessage('Organization created! Reloading page...');
+              setTimeout(() => window.location.reload(), 500);
+            }
+          }, 2000);
+        }, 1000);
+      } catch (error) {
+        console.error('Error refreshing organization info:', error);
+        window.location.reload();
+      }
+
       setTimeout(() => setSuccessMessage(null), 5000);
     }
   };
@@ -66,14 +83,14 @@ export default function OrganizationManager() {
       setError(leaveError);
     } else {
       setSuccessMessage('Successfully left organization');
-      await loadUserMode(); // Refresh user mode
+      await refreshModeInfo(); // Refresh user mode
 
       // Clear success message after 5 seconds
       setTimeout(() => setSuccessMessage(null), 5000);
     }
   };
 
-  if (loading) {
+  if (modeLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
@@ -89,13 +106,28 @@ export default function OrganizationManager() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-light text-slate-900 mb-2">Organization Management</h1>
-          <p className="text-slate-600">
-            {userModeInfo?.mode === 'organization'
-              ? `Manage your organization and team members`
-              : 'Create or join an organization to collaborate with your team'
-            }
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-light text-slate-900 mb-2">Organization Management</h1>
+              <p className="text-slate-600">
+                {membershipStatus === 'multi_organization'
+                  ? `Manage your organizations and team members`
+                  : 'Create or join an organization to collaborate with your team'
+                }
+              </p>
+            </div>
+            <button
+              onClick={refreshModeInfo}
+              disabled={modeLoading}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
+              title="Refresh organization status"
+            >
+              <svg className={`w-4 h-4 ${modeLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Refresh
+            </button>
+          </div>
         </div>
 
         {/* Error Alert */}
@@ -144,7 +176,7 @@ export default function OrganizationManager() {
           </div>
         )}
 
-        {userModeInfo?.mode === 'individual' ? (
+        {membershipStatus === 'individual' ? (
           // Individual Mode - Show options to create or join organization
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-8">
             <div className="text-center mb-8">
@@ -158,6 +190,18 @@ export default function OrganizationManager() {
                 You're currently working individually. Create an organization to collaborate with your team,
                 or join an existing organization if you've received an invitation.
               </p>
+              {successMessage?.includes('joined') && (
+                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center justify-center gap-2 text-blue-700">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-sm font-medium">
+                      Just joined an organization? Click the "Refresh" button above if the page doesn't update automatically.
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
@@ -201,46 +245,84 @@ export default function OrganizationManager() {
             </div>
           </div>
         ) : (
-          // Organization Mode - Show organization management
+          // Multi-Organization Mode - Show organization management
           <div>
-            {/* Organization Header */}
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center mr-4">
-                    <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-4m-5 0H3m2 0h3M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 8v2a1 1 0 001 1h4a1 1 0 001-1v-2" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-semibold text-slate-900">{userModeInfo?.organization?.name}</h2>
-                    <p className="text-slate-600">
-                      {userModeInfo?.member?.role === 'admin' ? 'Organization Administrator' : 'Organization Member'}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    Organization Mode
-                  </span>
-                  {/* Show different buttons based on whether user is owner or member */}
-                  {userModeInfo?.organization?.created_by === user?.id ? (
-                    // Organization owner sees delete option in settings tab only
-                    <span className="text-xs text-slate-500 italic">
-                      Organization Owner
-                    </span>
-                  ) : (
-                    // Regular members can leave the organization
+            {/* Organization Selector */}
+            {allOrganizations.length > 1 && (
+              <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
+                <h3 className="text-lg font-semibold text-slate-900 mb-4">Select Organization to Manage</h3>
+                <div className="grid gap-3">
+                  {allOrganizations.map((org) => (
                     <button
-                      onClick={handleLeaveOrganization}
-                      className="px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors"
+                      key={org.organization_id}
+                      onClick={() => setSelectedOrgId(org.organization_id)}
+                      className={`p-4 text-left rounded-lg border-2 transition-all ${
+                        (selectedOrgId === org.organization_id || (!selectedOrgId && org.organization_id === activeOrganization?.organization_id))
+                          ? 'border-emerald-200 bg-emerald-50'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
                     >
-                      Leave Organization
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-semibold text-slate-900">{org.organization.name}</h4>
+                          <p className="text-sm text-slate-600">
+                            {org.role === 'admin' ? 'Administrator' : 'Member'}
+                            {org.organization.created_by === user?.id && ' • Owner'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {org.organization_id === activeOrganization?.organization_id && (
+                            <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
+                              Active
+                            </span>
+                          )}
+                          <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </div>
+                      </div>
                     </button>
-                  )}
+                  ))}
                 </div>
               </div>
-            </div>
+            )}
+
+            {/* Organization Header */}
+            {displayOrganization && (
+              <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center mr-4">
+                      <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-4m-5 0H3m2 0h3M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 8v2a1 1 0 001 1h4a1 1 0 001-1v-2" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-semibold text-slate-900">{displayOrganization.organization.name}</h2>
+                      <p className="text-slate-600">
+                        {displayOrganization.role === 'admin' ? 'Organization Administrator' : 'Organization Member'}
+                        {displayOrganization.organization.created_by === user?.id && ' • Owner'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                      Managing Organization
+                    </span>
+                    {/* Show different buttons based on whether user is owner or member */}
+                    {displayOrganization.organization.created_by !== user?.id && (
+                      // Regular members can leave the organization
+                      <button
+                        onClick={handleLeaveOrganization}
+                        className="px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors"
+                      >
+                        Leave Organization
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Tab Navigation */}
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 mb-6">
@@ -266,7 +348,7 @@ export default function OrganizationManager() {
                   >
                     Members
                   </button>
-                  {userModeInfo?.organization?.created_by === user?.id && (
+                  {displayOrganization?.organization.created_by === user?.id && (
                     <button
                       onClick={() => setActiveTab('settings')}
                       className={`py-4 border-b-2 font-medium text-sm ${
@@ -324,7 +406,7 @@ export default function OrganizationManager() {
                           </div>
                           <div className="ml-4">
                             <h4 className="text-lg font-semibold text-slate-900">Your Role</h4>
-                            <p className="text-sm text-slate-600 capitalize">{userModeInfo?.member?.role}</p>
+                            <p className="text-sm text-slate-600 capitalize">{displayOrganization?.role}</p>
                           </div>
                         </div>
                       </div>
@@ -333,7 +415,7 @@ export default function OrganizationManager() {
                     <div className="mt-8">
                       <h4 className="text-md font-medium text-slate-900 mb-4">Your Permissions</h4>
                       <div className="grid md:grid-cols-2 gap-4">
-                        {Object.entries(userModeInfo?.member?.permissions || {}).map(([permission, hasPermission]) => (
+                        {Object.entries(displayOrganization?.permissions || {}).map(([permission, hasPermission]) => (
                           <div key={permission} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                             <span className="text-sm text-slate-700 capitalize">
                               {permission.replace(/_/g, ' ')}
@@ -352,23 +434,59 @@ export default function OrganizationManager() {
                   </div>
                 )}
 
-                {activeTab === 'members' && (
+                {activeTab === 'members' && displayOrganization && (
                   <MemberManagement
-                    organizationId={userModeInfo?.organization?.id || ''}
-                    currentUserRole={userModeInfo?.member?.role || 'member'}
+                    organizationId={displayOrganization.organization_id}
+                    currentUserRole={displayOrganization.role}
                     onError={setError}
                     onSuccess={setSuccessMessage}
                   />
                 )}
 
-                {activeTab === 'settings' && userModeInfo?.organization?.created_by === user?.id && (
+                {activeTab === 'settings' && displayOrganization?.organization.created_by === user?.id && (
                   <OrganizationSettings
-                    organization={userModeInfo.organization!}
+                    organization={displayOrganization.organization}
                     onError={setError}
                     onSuccess={setSuccessMessage}
-                    onOrganizationUpdated={loadUserMode}
+                    onOrganizationUpdated={refreshModeInfo}
                   />
                 )}
+              </div>
+            </div>
+
+            {/* Actions for managing multiple organizations */}
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+              <h3 className="text-lg font-semibold text-slate-900 mb-4">Organization Actions</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="flex items-center justify-center gap-3 p-4 border border-slate-200 rounded-lg hover:border-emerald-200 hover:bg-emerald-50 transition-colors"
+                >
+                  <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+                    <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="font-medium text-slate-900">Create New Organization</div>
+                    <div className="text-sm text-slate-600">Start another organization</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setShowJoinModal(true)}
+                  className="flex items-center justify-center gap-3 p-4 border border-slate-200 rounded-lg hover:border-blue-200 hover:bg-blue-50 transition-colors"
+                >
+                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="font-medium text-slate-900">Join Another Organization</div>
+                    <div className="text-sm text-slate-600">Use an invitation link</div>
+                  </div>
+                </button>
               </div>
             </div>
           </div>
@@ -377,6 +495,7 @@ export default function OrganizationManager() {
         {/* Modals */}
         {showCreateModal && (
           <CreateOrganizationModal
+            isOpen={showCreateModal}
             onClose={() => setShowCreateModal(false)}
             onSubmit={handleCreateOrganization}
           />
@@ -384,11 +503,33 @@ export default function OrganizationManager() {
 
         {showJoinModal && (
           <JoinOrganizationModal
+            isOpen={showJoinModal}
             onClose={() => setShowJoinModal(false)}
-            onSuccess={() => {
+            onSuccess={async () => {
               setShowJoinModal(false);
               setSuccessMessage('Successfully joined organization!');
-              loadUserMode();
+
+              // Multiple refresh attempts to ensure the context updates
+              try {
+                await refreshModeInfo();
+
+                // Wait a moment and try again if still showing individual
+                setTimeout(async () => {
+                  await refreshModeInfo();
+
+                  // Final check - if still individual after 2 seconds, force reload
+                  setTimeout(() => {
+                    if (membershipStatus === 'individual') {
+                      setSuccessMessage('Joined successfully! Reloading page...');
+                      setTimeout(() => window.location.reload(), 500);
+                    }
+                  }, 2000);
+                }, 1000);
+              } catch (error) {
+                console.error('Error refreshing organization info:', error);
+                window.location.reload();
+              }
+
               setTimeout(() => setSuccessMessage(null), 5000);
             }}
             onError={setError}
