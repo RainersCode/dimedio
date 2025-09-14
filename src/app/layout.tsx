@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { SupabaseAuthProvider } from "@/contexts/SupabaseAuthContext";
+import { MultiOrgUserModeProvider } from "@/contexts/MultiOrgUserModeContext";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,7 +32,9 @@ export default function RootLayout({
       >
         <LanguageProvider>
           <SupabaseAuthProvider>
-            {children}
+            <MultiOrgUserModeProvider>
+              {children}
+            </MultiOrgUserModeProvider>
           </SupabaseAuthProvider>
         </LanguageProvider>
       </body>

@@ -2,21 +2,26 @@
 
 import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { DrugInventoryService, formatDrugName, getDrugStockStatus, isNearExpiry } from '@/lib/drugInventory';
+import { useUserMode } from '@/contexts/UserModeContext';
+import { ModeAwareDrugInventoryService } from '@/lib/modeAwareDrugInventoryService';
+import { formatDrugName, getDrugStockStatus, isNearExpiry } from '@/lib/drugInventory';
 import { DrugInventoryExportService } from '@/lib/drugInventoryExport';
 import { useOrganizationPermissions } from '@/hooks/useOrganizationPermissions';
 import { ManageInventoryGuard, WriteOffGuard } from '@/components/organization/PermissionGuard';
 import UserModeIndicator from '@/components/organization/UserModeIndicator';
 import type { UserDrugInventory, DrugCategory } from '@/types/database';
+import type { OrganizationDrugInventory } from '@/types/organization';
 import AddDrugModal from './AddDrugModal';
 import EditDrugModal from './EditDrugModal';
 import ImportDrugsModal from './ImportDrugsModal';
 
 export default function DrugInventoryPage() {
   const { t } = useLanguage();
+  const { activeMode, organizationId } = useUserMode();
   const permissions = useOrganizationPermissions();
-  const [drugs, setDrugs] = useState<UserDrugInventory[]>([]);
+  const [drugs, setDrugs] = useState<(UserDrugInventory | OrganizationDrugInventory)[]>([]);
   const [categories, setCategories] = useState<DrugCategory[]>([]);
+  const [currentMode, setCurrentMode] = useState<'individual' | 'organization'>('individual');
   const [loading, setLoading] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -37,13 +42,20 @@ export default function DrugInventoryPage() {
     checkAccess();
   }, []);
 
+  // Reload data when active mode changes
+  useEffect(() => {
+    if (hasAccess) {
+      loadData();
+    }
+  }, [activeMode, organizationId]);
+
   const checkAccess = async () => {
-    const { hasAccess: accessGranted, error } = await DrugInventoryService.checkDrugInventoryAccess();
+    const { hasAccess: accessGranted, error } = await ModeAwareDrugInventoryService.checkDrugInventoryAccess();
     if (error) {
       setError(error);
     }
     setHasAccess(accessGranted);
-    
+
     if (accessGranted) {
       await loadData();
     }
@@ -52,14 +64,15 @@ export default function DrugInventoryPage() {
 
   const loadData = async () => {
     const [drugsResult, categoriesResult] = await Promise.all([
-      DrugInventoryService.getUserDrugInventory(),
-      DrugInventoryService.getDrugCategories(),
+      ModeAwareDrugInventoryService.getDrugInventory(activeMode, organizationId),
+      ModeAwareDrugInventoryService.getDrugCategories(),
     ]);
 
     if (drugsResult.error) {
       setError(drugsResult.error);
     } else {
       setDrugs(drugsResult.data || []);
+      setCurrentMode(drugsResult.mode);
     }
 
     if (categoriesResult.error) {

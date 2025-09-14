@@ -3,13 +3,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
+import { useUserMode } from '@/contexts/UserModeContext';
 import { DatabaseService, N8nService } from '@/lib/database';
-import { PatientService } from '@/lib/patientService';
+import { ModeAwarePatientService } from '@/lib/modeAwarePatientService';
+import { ModeAwareDiagnosisService } from '@/lib/modeAwareDiagnosisService';
+import { ModeAwareDrugInventoryService } from '@/lib/modeAwareDrugInventoryService';
 import { DrugDispensingService } from '@/lib/drugDispensingService';
 import { DiagnosisFormData, UserDrugInventory } from '@/types/database';
+import type { OrganizationDrugInventory } from '@/types/organization';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { CreditsService } from '@/lib/credits';
-import { DrugInventoryService } from '@/lib/drugInventory';
 import { triggerUndispensedMedicationsRefresh } from '@/hooks/useUndispensedMedicationsRefresh';
 import DiagnosisDebug from './DiagnosisDebug';
 import { DiagnosisExportDropdown } from './DiagnosisExportButtons';
@@ -21,6 +24,7 @@ interface DiagnosisFormProps {
 
 export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = '' }: DiagnosisFormProps) {
   const { user } = useSupabaseAuth();
+  const { activeMode, organizationId } = useUserMode();
   const { t } = useLanguage();
   const router = useRouter();
   
@@ -76,8 +80,9 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     isAdmin: boolean;
   } | null>(null);
   const [checkingCredits, setCheckingCredits] = useState(true);
-  const [userDrugInventory, setUserDrugInventory] = useState<UserDrugInventory[]>([]);
-  const [drugSearchResults, setDrugSearchResults] = useState<UserDrugInventory[]>([]);
+  const [userDrugInventory, setUserDrugInventory] = useState<(UserDrugInventory | OrganizationDrugInventory)[]>([]);
+  const [drugSearchResults, setDrugSearchResults] = useState<(UserDrugInventory | OrganizationDrugInventory)[]>([]);
+  const [currentMode, setCurrentMode] = useState<'individual' | 'organization'>('individual');
   const [showDrugSuggestions, setShowDrugSuggestions] = useState<{[key: string]: boolean}>({});
   const [savingPatient, setSavingPatient] = useState(false);
   const [patientSaved, setPatientSaved] = useState(false);
@@ -104,6 +109,23 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       [section]: !prev[section]
     }));
   };
+
+  // Load drug inventory when mode changes
+  useEffect(() => {
+    const loadDrugInventory = async () => {
+      try {
+        const { data, error, mode } = await ModeAwareDrugInventoryService.getDrugInventory(activeMode, organizationId);
+        if (!error && data) {
+          setUserDrugInventory(data);
+          setCurrentMode(mode);
+        }
+      } catch (error) {
+        console.error('Error loading drug inventory:', error);
+      }
+    };
+
+    loadDrugInventory();
+  }, [activeMode, organizationId]);
 
   // Progress simulation for medical analysis
   const simulateProgress = () => {
@@ -171,9 +193,11 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       }
       
       // Update the diagnosis in the database with manual edits
-      const { data: updatedDiagnosis, error: updateError } = await DatabaseService.updateDiagnosisManually(
+      const { data: updatedDiagnosis, error: updateError } = await ModeAwareDiagnosisService.updateDiagnosis(
         diagnosisToSave.id,
-        diagnosisToSave
+        diagnosisToSave,
+        activeMode,
+        organizationId
       );
 
       if (updateError) {
@@ -222,7 +246,11 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       setSavingPatient(true);
       setError('');
 
-      const { data: savedPatient, error: saveError } = await PatientService.savePatientFromDiagnosis(diagnosisResult);
+      const { data: savedPatient, error: saveError } = await ModeAwarePatientService.savePatientFromDiagnosis(
+        diagnosisResult,
+        activeMode,
+        organizationId
+      );
 
       if (saveError) {
         setError('Failed to save patient: ' + saveError);
@@ -724,9 +752,13 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         const updatedCredits = await CreditsService.canUseDiagnosis();
         setCreditInfo(updatedCredits);
       }
-      // 1. Create diagnosis in database
-      const { data: diagnosis, error: dbError } = await DatabaseService.createDiagnosis(formData);
-      
+      // 1. Create diagnosis in database using mode-aware service
+      const { data: diagnosis, error: dbError } = await ModeAwareDiagnosisService.createDiagnosis(
+        formData,
+        activeMode,
+        organizationId
+      );
+
       if (dbError || !diagnosis) {
         throw new Error(dbError || 'Failed to create diagnosis');
       }
@@ -744,9 +776,11 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
       // 3. Update diagnosis with AI results
       if (n8nResponse) {
-        const { data: updatedDiagnosis, error: updateError } = await DatabaseService.updateDiagnosisWithAI(
+        const { data: updatedDiagnosis, error: updateError } = await ModeAwareDiagnosisService.updateDiagnosis(
           diagnosis.id,
-          n8nResponse
+          n8nResponse,
+          activeMode,
+          organizationId
         );
         
         if (updateError) {

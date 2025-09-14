@@ -1,0 +1,298 @@
+import { supabase } from './supabase';
+import { OrganizationDrugInventoryService } from './organizationDrugInventoryService';
+import type {
+  DrugCategory,
+  UserDrugInventory,
+  DrugInventoryFormData,
+  DiagnosisDrugSuggestion,
+  DrugUsageHistory,
+  DrugInteraction
+} from '@/types/database';
+import type { OrganizationDrugInventory } from '@/types/organization';
+import type { UserWorkingMode } from '@/contexts/UserModeContext';
+
+export class ModeAwareDrugInventoryService {
+  // Check if user has access to drug inventory (premium feature)
+  static async checkDrugInventoryAccess(): Promise<{ hasAccess: boolean; error: string | null }> {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        return { hasAccess: false, error: 'User not authenticated' };
+      }
+
+      const { data, error } = await supabase.rpc('user_has_drug_inventory_access', {
+        target_user_id: user.id
+      });
+
+      if (error) {
+        console.error('Error checking drug inventory access:', error);
+        return { hasAccess: false, error: error.message };
+      }
+
+      return { hasAccess: data || false, error: null };
+    } catch (error) {
+      console.error('Drug inventory access check failed:', error);
+      return { hasAccess: false, error: 'Access check failed' };
+    }
+  }
+
+  // Get all drug categories
+  static async getDrugCategories(): Promise<{ data: DrugCategory[] | null; error: string | null }> {
+    const { data, error } = await supabase
+      .from('drug_categories')
+      .select('*')
+      .eq('is_active', true)
+      .order('name', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching drug categories:', error);
+      return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+  }
+
+  // Get drug inventory based on active mode
+  static async getDrugInventory(
+    activeMode: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{
+    data: (UserDrugInventory | OrganizationDrugInventory)[] | null;
+    error: string | null;
+    mode: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated', mode: 'individual' };
+    }
+
+    try {
+      if (activeMode === 'organization' && organizationId) {
+        // Use organization inventory
+        const { data: orgData, error: orgError } = await OrganizationDrugInventoryService.getOrganizationDrugInventory(organizationId);
+        return { data: orgData, error: orgError, mode: 'organization' };
+      } else {
+        // Use individual inventory
+        const { data, error } = await supabase
+          .from('user_drug_inventory')
+          .select(`
+            *,
+            category:drug_categories(*)
+          `)
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .order('drug_name', { ascending: true });
+
+        if (error) {
+          console.error('Error fetching drug inventory:', error);
+          return { data: null, error: error.message, mode: 'individual' };
+        }
+
+        return { data, error: null, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error fetching drug inventory:', error);
+      return { data: null, error: 'Failed to fetch drug inventory', mode: 'individual' };
+    }
+  }
+
+  // Add drug to inventory based on active mode
+  static async addDrug(
+    drugData: DrugInventoryFormData,
+    activeMode: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{
+    data: (UserDrugInventory | OrganizationDrugInventory) | null;
+    error: string | null;
+    mode: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated', mode: 'individual' };
+    }
+
+    try {
+      if (activeMode === 'organization' && organizationId) {
+        // Use organization drug inventory service
+        const { data: orgData, error: orgError } = await OrganizationDrugInventoryService.addDrug({
+          ...drugData,
+          organization_id: organizationId
+        });
+        return { data: orgData, error: orgError, mode: 'organization' };
+      } else {
+        // Use individual inventory
+        const { data, error } = await supabase
+          .from('user_drug_inventory')
+          .insert([{
+            ...drugData,
+            user_id: user.id,
+            is_active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }])
+          .select(`
+            *,
+            category:drug_categories(*)
+          `)
+          .single();
+
+        if (error) {
+          console.error('Error adding drug to inventory:', error);
+          return { data: null, error: error.message, mode: 'individual' };
+        }
+
+        return { data, error: null, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error adding drug:', error);
+      return { data: null, error: 'Failed to add drug', mode: 'individual' };
+    }
+  }
+
+  // Update drug in inventory based on active mode
+  static async updateDrug(
+    drugId: string,
+    drugData: Partial<DrugInventoryFormData>,
+    activeMode: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{
+    data: (UserDrugInventory | OrganizationDrugInventory) | null;
+    error: string | null;
+    mode: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated', mode: 'individual' };
+    }
+
+    try {
+      if (activeMode === 'organization' && organizationId) {
+        // Use organization drug inventory service
+        const { data: orgData, error: orgError } = await OrganizationDrugInventoryService.updateDrug(drugId, drugData);
+        return { data: orgData, error: orgError, mode: 'organization' };
+      } else {
+        // Use individual inventory
+        const { data, error } = await supabase
+          .from('user_drug_inventory')
+          .update({
+            ...drugData,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', drugId)
+          .eq('user_id', user.id)
+          .select(`
+            *,
+            category:drug_categories(*)
+          `)
+          .single();
+
+        if (error) {
+          console.error('Error updating drug in inventory:', error);
+          return { data: null, error: error.message, mode: 'individual' };
+        }
+
+        return { data, error: null, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error updating drug:', error);
+      return { data: null, error: 'Failed to update drug', mode: 'individual' };
+    }
+  }
+
+  // Delete drug from inventory based on active mode
+  static async deleteDrug(
+    drugId: string,
+    activeMode: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{ error: string | null; mode: 'individual' | 'organization' }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { error: 'User not authenticated', mode: 'individual' };
+    }
+
+    try {
+      if (activeMode === 'organization' && organizationId) {
+        // Use organization drug inventory service
+        const { error: orgError } = await OrganizationDrugInventoryService.deleteDrug(drugId);
+        return { error: orgError, mode: 'organization' };
+      } else {
+        // Use individual inventory
+        const { error } = await supabase
+          .from('user_drug_inventory')
+          .update({ is_active: false })
+          .eq('id', drugId)
+          .eq('user_id', user.id);
+
+        if (error) {
+          console.error('Error deleting drug from inventory:', error);
+          return { error: error.message, mode: 'individual' };
+        }
+
+        return { error: null, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error deleting drug:', error);
+      return { error: 'Failed to delete drug', mode: 'individual' };
+    }
+  }
+
+  // Get drug suggestions for diagnosis based on active mode
+  static async getDrugSuggestionsForSymptoms(
+    symptoms: string[],
+    activeMode: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{
+    data: DiagnosisDrugSuggestion[] | null;
+    error: string | null;
+    mode: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated', mode: 'individual' };
+    }
+
+    try {
+      // Get inventory based on active mode
+      const { data: inventory, error: inventoryError, mode } = await this.getDrugInventory(activeMode, organizationId);
+
+      if (inventoryError || !inventory) {
+        return { data: null, error: inventoryError || 'No inventory found', mode: 'individual' };
+      }
+
+      // Simple matching logic - in production, you'd want more sophisticated AI matching
+      const suggestions: DiagnosisDrugSuggestion[] = inventory
+        .filter((drug: any) => {
+          // Check if any symptom keywords match drug indications
+          return symptoms.some(symptom =>
+            drug.indications?.toLowerCase().includes(symptom.toLowerCase()) ||
+            drug.drug_name?.toLowerCase().includes(symptom.toLowerCase())
+          );
+        })
+        .map((drug: any) => ({
+          drug_id: drug.id,
+          drug_name: drug.drug_name,
+          generic_name: drug.generic_name,
+          strength: drug.strength,
+          dosage_form: drug.dosage_form,
+          available_quantity: drug.quantity,
+          recommended_dosage: drug.default_dosage || 'As prescribed',
+          indications: drug.indications,
+          contraindications: drug.contraindications,
+          side_effects: drug.side_effects,
+          confidence_score: 0.8, // Simple static score for now
+          stock_status: drug.quantity > 0 ? 'in_stock' : 'out_of_stock' as const
+        }));
+
+      return { data: suggestions, error: null, mode };
+    } catch (error) {
+      console.error('Error getting drug suggestions:', error);
+      return { data: null, error: 'Failed to get drug suggestions', mode: 'individual' };
+    }
+  }
+}
