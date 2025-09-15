@@ -92,16 +92,28 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
         return;
       }
 
-      // Find the specific patient by ID
-      const targetPatient = allPatients?.find(p => p.id === params.id);
+      console.log('All patients fetched:', allPatients?.length || 0);
+      console.log('Looking for patient with ID:', params.id);
+      console.log('Available patient IDs:', allPatients?.map(p => ({ id: p.id, patient_id: p.patient_id, name: p.patient_name })));
+
+      // Find the specific patient by ID - try multiple ID fields
+      const targetPatient = allPatients?.find(p =>
+        p.id === params.id ||
+        p.patient_id === params.id ||
+        (p.id && p.id.toString() === params.id) ||
+        (p.patient_id && p.patient_id.toString() === params.id)
+      );
+
+      console.log('Target patient found:', targetPatient ? { id: targetPatient.id, patient_id: targetPatient.patient_id, name: targetPatient.patient_name } : 'NOT FOUND');
+
       if (!targetPatient) {
         setError('Patient not found or not accessible in current mode');
         return;
       }
 
       // Fetch diagnoses for this patient using mode-aware service
-      const { data: diagnoses, error: diagnosisError } = await ModeAwareDiagnosisService.getPatientDiagnoses(
-        targetPatient.patient_id || targetPatient.id,
+      const { data: diagnoses, error: diagnosisError } = await ModeAwarePatientService.getPatientDiagnoses(
+        targetPatient.id,  // Use the patient's UUID, not patient_id
         activeMode,
         organizationId
       );

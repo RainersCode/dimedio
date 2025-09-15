@@ -73,6 +73,7 @@ export class ModeAwarePatientService {
             last_diagnosis_id
           `)
           .eq('organization_id', organizationId)
+          .eq('is_active', true)
           .order('created_at', { ascending: false });
 
         console.log('Organization patients query result:', { patientsData, patientsError });
@@ -183,6 +184,7 @@ export class ModeAwarePatientService {
           .from('organization_patients')
           .select('*')
           .eq('organization_id', organizationId)
+          .eq('is_active', true)
           .or(`patient_name.ilike.%${searchQuery}%,patient_id.ilike.%${searchQuery}%`)
           .order('created_at', { ascending: false });
 
@@ -284,24 +286,214 @@ export class ModeAwarePatientService {
         const { data: orgData, error: orgError } = await OrganizationPatientService.getPatientDiagnoses(patientId, organizationId);
         return { data: orgData, error: orgError, mode: 'organization' };
       } else {
-        // Use individual patient service
-        const { data, error } = await supabase
-          .from('diagnoses')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('patient_id', patientId)
-          .order('created_at', { ascending: false });
+        // Use individual patient service with comprehensive matching logic
+        let diagnoses: any[] = [];
+        let diagnosesError = null;
 
-        if (error) {
-          console.error('Error fetching patient diagnoses:', error);
-          return { data: null, error: error.message, mode: 'individual' };
+        console.log('Fetching diagnoses for patientId:', patientId);
+
+        // First try to get diagnoses by patient_id if available
+        if (patientId && patientId !== 'undefined' && patientId !== 'null') {
+          const { data, error } = await supabase
+            .from('diagnoses')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('patient_id', patientId)
+            .order('created_at', { ascending: false });
+
+          console.log('Diagnoses found by patient_id:', data?.length || 0);
+          diagnoses = data || [];
+          diagnosesError = error;
         }
 
-        return { data, error: null, mode: 'individual' };
+        // If no diagnoses found by patient_id, try searching by patient name
+        // This handles cases where diagnoses were created without patient_id
+        if (diagnoses.length === 0 && !diagnosesError) {
+          console.log('No diagnoses found by patient_id, trying to search by name...');
+
+          // Try to get patient profile directly to get the name
+          let patient = null;
+
+          // First try to get from patient_profiles table
+          if (patientId && !patientId.startsWith('anonymous-')) {
+            const { data: patientData } = await supabase
+              .from('patient_profiles')
+              .select('*')
+              .eq('user_id', user.id)
+              .eq('id', patientId)
+              .maybeSingle();
+            patient = patientData;
+          }
+
+          if (patient && patient.patient_name) {
+            console.log('Trying to find diagnoses by patient_name:', patient.patient_name);
+
+            // Try by name + date_of_birth if available
+            if (patient.date_of_birth) {
+              const { data, error } = await supabase
+                .from('diagnoses')
+                .select('*')
+                .eq('user_id', user.id)
+                .eq('patient_name', patient.patient_name)
+                .eq('date_of_birth', patient.date_of_birth)
+                .order('created_at', { ascending: false });
+
+              console.log('Diagnoses found by name + DOB:', data?.length || 0);
+              diagnoses = [...diagnoses, ...(data || [])];
+              diagnosesError = error;
+            }
+
+            // Finally, fall back to name matching for backward compatibility
+            if (diagnoses.length === 0 && !diagnosesError) {
+              const { data, error } = await supabase
+                .from('diagnoses')
+                .select('*')
+                .eq('user_id', user.id)
+                .eq('patient_name', patient.patient_name)
+                .order('created_at', { ascending: false });
+
+              console.log('Diagnoses found by name only:', data?.length || 0);
+
+              // Filter results to ensure they match the full name if surname is available
+              const filteredData = (data || []).filter(diagnosis => {
+                if (!patient.patient_surname || !diagnosis.patient_surname) {
+                  return true; // Include if either doesn't have surname
+                }
+                return diagnosis.patient_surname === patient.patient_surname;
+              });
+
+              diagnoses = [...diagnoses, ...filteredData];
+              diagnosesError = error;
+            }
+          }
+        }
+
+        if (diagnosesError) {
+          console.error('Error fetching patient diagnoses:', diagnosesError);
+          return { data: null, error: diagnosesError.message, mode: 'individual' };
+        }
+
+        console.log('Total diagnoses found:', diagnoses.length);
+        return { data: diagnoses, error: null, mode: 'individual' };
       }
     } catch (error) {
       console.error('Error fetching patient diagnoses:', error);
       return { data: null, error: 'Failed to fetch patient diagnoses', mode: 'individual' };
+    }
+  }
+
+  // Delete patient based on active mode
+  static async deletePatient(
+    patientId: string,
+    activeMode: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{
+    error: string | null;
+    mode: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { error: 'User not authenticated', mode: 'individual' };
+    }
+
+    try {
+      console.log('ModeAwarePatientService.deletePatient called with:', { patientId, activeMode, organizationId });
+
+      if (activeMode === 'organization' && organizationId) {
+        console.log('Using organization patient service for deletion');
+        // Use organization patient service
+        const { error: orgError } = await OrganizationPatientService.deleteOrganizationPatient(patientId);
+        console.log('Organization deletion result:', { orgError });
+        return { error: orgError, mode: 'organization' };
+      } else {
+        // Use individual patient service
+        // Handle anonymous patients (format: anonymous-{diagnosisId})
+        if (patientId.startsWith('anonymous-')) {
+          const diagnosisId = patientId.replace('anonymous-', '');
+
+          // Delete only the specific diagnosis for anonymous patients
+          const { error: diagnosisError } = await supabase
+            .from('diagnoses')
+            .delete()
+            .eq('id', diagnosisId)
+            .eq('user_id', user.id);
+
+          if (diagnosisError) {
+            console.error('Error deleting anonymous patient diagnosis:', diagnosisError);
+            return { error: diagnosisError.message, mode: 'individual' };
+          }
+
+          return { error: null, mode: 'individual' };
+        }
+
+        // For regular patients with profiles, delete both profile and all their diagnoses
+        try {
+          // First, get the patient to find their identifying information
+          const { data: patient, error: fetchError } = await supabase
+            .from('patient_profiles')
+            .select('*')
+            .eq('id', patientId)
+            .eq('user_id', user.id)
+            .single();
+
+          if (fetchError) {
+            console.error('Error fetching patient for deletion:', fetchError);
+            return { error: fetchError.message, mode: 'individual' };
+          }
+
+          // Delete all diagnoses for this patient using comprehensive matching
+          let diagnosesError = null;
+
+          // First try to delete by patient_id if available
+          if (patient.patient_id) {
+            const { error } = await supabase
+              .from('diagnoses')
+              .delete()
+              .eq('patient_id', patient.patient_id)
+              .eq('user_id', user.id);
+            if (error) diagnosesError = error;
+          }
+
+          // Also delete by name matching for backward compatibility
+          if (!diagnosesError) {
+            const { error } = await supabase
+              .from('diagnoses')
+              .delete()
+              .eq('patient_name', patient.patient_name)
+              .eq('user_id', user.id);
+            // Don't overwrite previous error, but log this one if it exists
+            if (error) {
+              console.warn('Error deleting diagnoses by name:', error);
+            }
+          }
+
+          if (diagnosesError) {
+            console.error('Error deleting patient diagnoses:', diagnosesError);
+            return { error: diagnosesError.message, mode: 'individual' };
+          }
+
+          // Delete the patient profile
+          const { error: profileError } = await supabase
+            .from('patient_profiles')
+            .delete()
+            .eq('id', patientId)
+            .eq('user_id', user.id);
+
+          if (profileError) {
+            console.error('Error deleting patient profile:', profileError);
+            return { error: profileError.message, mode: 'individual' };
+          }
+
+          return { error: null, mode: 'individual' };
+        } catch (err) {
+          console.error('Unexpected error during patient deletion:', err);
+          return { error: 'Failed to delete patient completely', mode: 'individual' };
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting patient:', error);
+      return { error: 'Failed to delete patient', mode: 'individual' };
     }
   }
 

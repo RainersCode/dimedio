@@ -2,9 +2,14 @@
 
 import Navigation from '@/components/layout/Navigation';
 import { InventoryUsageService, InventoryUsageRecord } from '@/lib/inventoryUsageService';
+import { OrganizationInventoryUsageService } from '@/lib/organizationInventoryUsageService';
 import { DrugInventoryService } from '@/lib/drugInventory';
+import { ModeAwareDrugDispensingService } from '@/lib/modeAwareDrugDispensingService';
+import { ModeAwareDrugInventoryService } from '@/lib/modeAwareDrugInventoryService';
 import { useState, useEffect, useRef } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
+import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
+import OrganizationSelector from '@/components/drugInventory/OrganizationSelector';
 
 interface DrugUsageSummary {
   drug_name: string;
@@ -20,11 +25,19 @@ interface DrugUsageSummary {
 
 export default function DrugUsageReport() {
   const { user } = useSupabaseAuth();
+  const {
+    activeMode,
+    membershipStatus,
+    activeOrganization,
+  } = useMultiOrgUserMode();
+
   const [inventoryUsageHistory, setInventoryUsageHistory] = useState<InventoryUsageRecord[]>([]);
   const [drugSummaries, setDrugSummaries] = useState<DrugUsageSummary[]>([]);
   const [inventoryData, setInventoryData] = useState<{[drugId: string]: number}>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   
   // Filters similar to drug-dispensing page
   const [dateFrom, setDateFrom] = useState('');
@@ -45,7 +58,7 @@ export default function DrugUsageReport() {
     if (user) {
       fetchData();
     }
-  }, [user]);
+  }, [user, activeMode, activeOrganization?.organization_id]);
 
   // Handle click outside to close dropdowns
   useEffect(() => {
@@ -63,12 +76,15 @@ export default function DrugUsageReport() {
 
   const fetchInventoryData = async (): Promise<{[drugId: string]: number}> => {
     try {
-      const { data: inventory, error } = await DrugInventoryService.getUserDrugInventory();
+      const { data: inventory, error } = await ModeAwareDrugInventoryService.getDrugInventory(
+        activeMode,
+        activeOrganization?.organization_id || null
+      );
       if (error) {
         console.warn('Could not fetch inventory data:', error);
         return {};
       }
-      
+
       const inventoryMap: {[drugId: string]: number} = {};
       if (inventory) {
         inventory.forEach(item => {
@@ -88,21 +104,49 @@ export default function DrugUsageReport() {
       setLoading(true);
       setError('');
 
-      // Fetch all inventory usage history (drugs removed from inventory)
-      const { data: history, error: historyError } = await InventoryUsageService.getInventoryUsageHistory(1000);
-      if (historyError) {
-        throw new Error(historyError);
+      let history: any[] = [];
+
+      if (activeMode === 'organization' && activeOrganization?.organization_id) {
+        // In organization mode, show deleted dispensing records (usage history)
+        const { data: orgUsageHistory, error: historyError } = await OrganizationInventoryUsageService.getInventoryUsageHistory(
+          activeOrganization.organization_id,
+          1000
+        );
+        if (historyError) {
+          throw new Error(historyError);
+        }
+
+        // Transform organization usage records to match the expected format
+        history = (orgUsageHistory || []).map(record => ({
+          id: record.id,
+          user_id: record.user_id,
+          drug_id: record.drug_id,
+          drug_name: record.drug_name,
+          quantity_removed: record.quantity_removed,
+          removal_reason: record.removal_reason,
+          original_dispensing_record_id: record.original_dispensing_record_id,
+          patient_name: record.patient_name,
+          notes: record.notes,
+          removed_at: record.removed_at
+        }));
+      } else {
+        // In individual mode, show inventory usage history (deletions)
+        const { data: usageHistory, error: historyError } = await InventoryUsageService.getInventoryUsageHistory(1000);
+        if (historyError) {
+          throw new Error(historyError);
+        }
+        history = usageHistory || [];
       }
-      
-      setInventoryUsageHistory(history || []);
-      
+
+      setInventoryUsageHistory(history);
+
       // Fetch inventory data and get the current inventory map
       const currentInventoryData = await fetchInventoryData();
-      
+
       // Process data into drug summaries with current inventory data
       if (history) {
         processDrugSummaries(history, currentInventoryData);
-        
+
         // Generate drug name suggestions for search dropdown
         const uniqueDrugNames = Array.from(new Set(history.map(record => record.drug_name).filter(Boolean)));
         setDrugSuggestionsFilter(uniqueDrugNames.sort());
@@ -275,9 +319,62 @@ export default function DrugUsageReport() {
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Drug Usage Report</h1>
-            <p className="text-slate-600 mt-2">Summary of drugs removed from inventory (when dispensing records are deleted)</p>
+            <p className="text-slate-600 mt-2">
+              {activeMode === 'organization'
+                ? 'Summary of drugs dispensed to patients (organization mode)'
+                : 'Summary of drugs removed from inventory (when dispensing records are deleted)'
+              }
+            </p>
           </div>
         </div>
+
+        {/* Organization/Individual Mode Selector */}
+        {membershipStatus !== 'individual' && (
+          <div className="mb-6">
+            <OrganizationSelector
+              onError={(error) => setErrorMessage(error)}
+              onSuccess={(message) => {
+                setSuccessMessage(message);
+                setErrorMessage('');
+              }}
+            />
+          </div>
+        )}
+
+        {/* Success/Error Messages */}
+        {successMessage && (
+          <div className="mb-6 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex items-center gap-2">
+            <svg className="w-5 h-5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <span>{successMessage}</span>
+            <button
+              onClick={() => setSuccessMessage('')}
+              className="ml-auto text-green-600 hover:text-green-800"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-center gap-2">
+            <svg className="w-5 h-5 text-red-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{errorMessage}</span>
+            <button
+              onClick={() => setErrorMessage('')}
+              className="ml-auto text-red-600 hover:text-red-800"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="bg-white rounded-xl border border-slate-200 mb-6 p-6">
@@ -384,10 +481,11 @@ export default function DrugUsageReport() {
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="p-6 border-b border-slate-200">
             <h2 className="text-lg font-semibold text-slate-900">
-              Inventory Usage Summary
+              {activeMode === 'organization' ? 'Drug Dispensing Summary' : 'Inventory Usage Summary'}
             </h2>
             <p className="text-sm text-slate-600 mt-1">
-              {filteredAndSortedSummaries.length} drug{filteredAndSortedSummaries.length !== 1 ? 's' : ''} removed from inventory
+              {filteredAndSortedSummaries.length} drug{filteredAndSortedSummaries.length !== 1 ? 's' : ''}
+              {activeMode === 'organization' ? ' dispensed to patients' : ' removed from inventory'}
             </p>
           </div>
           
@@ -409,10 +507,13 @@ export default function DrugUsageReport() {
               <div className="text-center py-12">
                 <div className="text-slate-400 mb-2">📊</div>
                 <div className="text-slate-600 mb-1">
-                  {drugSearchTerm || dateFrom || dateTo ? 'No drugs match your filters' : 'No inventory usage data found'}
+                  {drugSearchTerm || dateFrom || dateTo ? 'No drugs match your filters' :
+                   activeMode === 'organization' ? 'No dispensing data found' : 'No inventory usage data found'}
                 </div>
                 <div className="text-sm text-slate-500">
-                  {!drugSearchTerm && !dateFrom && !dateTo ? 'Data will appear when you delete dispensing records.' : 'Try adjusting your filters above.'}
+                  {!drugSearchTerm && !dateFrom && !dateTo ?
+                   (activeMode === 'organization' ? 'Data will appear when you dispense drugs to patients.' : 'Data will appear when you delete dispensing records.') :
+                   'Try adjusting your filters above.'}
                 </div>
               </div>
             ) : (
@@ -447,10 +548,10 @@ export default function DrugUsageReport() {
                               </button>
                             </div>
                             <div className="text-sm text-slate-300 mt-1">
-                              Last removed: {new Date(summary.last_dispensed).toLocaleDateString('en-US', { 
-                                year: 'numeric', 
-                                month: 'short', 
-                                day: 'numeric' 
+                              {activeMode === 'organization' ? 'Last dispensed' : 'Last removed'}: {new Date(summary.last_dispensed).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
                               })}
                             </div>
                           </div>
@@ -472,13 +573,17 @@ export default function DrugUsageReport() {
                         {/* Statistics Grid */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                           <div className="bg-white rounded-md p-3 border border-slate-200">
-                            <div className="text-sm font-medium text-slate-600 mb-1">Total Removed</div>
+                            <div className="text-sm font-medium text-slate-600 mb-1">
+                              {activeMode === 'organization' ? 'Total Dispensed' : 'Total Removed'}
+                            </div>
                             <div className="text-xl font-bold text-emerald-600">{summary.total_quantity}</div>
                             <div className="text-xs text-slate-500">units</div>
                           </div>
-                          
+
                           <div className="bg-white rounded-md p-3 border border-slate-200">
-                            <div className="text-sm font-medium text-slate-600 mb-1">Removal Events</div>
+                            <div className="text-sm font-medium text-slate-600 mb-1">
+                              {activeMode === 'organization' ? 'Dispensing Events' : 'Removal Events'}
+                            </div>
                             <div className="text-xl font-bold text-blue-600">{summary.total_dispensings}</div>
                             <div className="text-xs text-slate-500">times</div>
                           </div>
@@ -490,7 +595,9 @@ export default function DrugUsageReport() {
                           </div>
                           
                           <div className="bg-white rounded-md p-3 border border-slate-200">
-                            <div className="text-sm font-medium text-slate-600 mb-1">Avg per Removal</div>
+                            <div className="text-sm font-medium text-slate-600 mb-1">
+                              {activeMode === 'organization' ? 'Avg per Dispensing' : 'Avg per Removal'}
+                            </div>
                             <div className="text-xl font-bold text-slate-700">{summary.average_per_dispensing}</div>
                             <div className="text-xs text-slate-500">units</div>
                           </div>
@@ -500,12 +607,14 @@ export default function DrugUsageReport() {
                         <div className="mt-4 pt-4 border-t border-slate-200">
                           <div className="flex items-center justify-between text-sm">
                             <div>
-                              <span className="font-medium text-slate-600">First removed:</span>
+                              <span className="font-medium text-slate-600">
+                                {activeMode === 'organization' ? 'First dispensed:' : 'First removed:'}
+                              </span>
                               <span className="ml-2 text-slate-900">
-                                {new Date(summary.first_dispensed).toLocaleDateString('en-US', { 
-                                  year: 'numeric', 
-                                  month: 'short', 
-                                  day: 'numeric' 
+                                {new Date(summary.first_dispensed).toLocaleDateString('en-US', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric'
                                 })}
                               </span>
                             </div>
@@ -521,7 +630,8 @@ export default function DrugUsageReport() {
                           {/* Click to expand hint */}
                           <div className="mt-3 text-center">
                             <div className="text-xs text-slate-500 bg-slate-100 px-3 py-1 rounded-full inline-block">
-                              Click to {isExpanded ? 'hide' : 'view'} detailed usage history
+                              Click to {isExpanded ? 'hide' : 'view'} detailed
+                              {activeMode === 'organization' ? ' dispensing' : ' usage'} history
                             </div>
                           </div>
                         </div>
@@ -535,7 +645,7 @@ export default function DrugUsageReport() {
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
-                              Usage History ({drugHistory.length} events)
+                              {activeMode === 'organization' ? 'Dispensing History' : 'Usage History'} ({drugHistory.length} events)
                             </h4>
                             
                             {drugHistory.length === 0 ? (
@@ -572,16 +682,20 @@ export default function DrugUsageReport() {
                                       <div className="flex items-center justify-between mb-3">
                                         <div className="flex items-center gap-2">
                                           <div className="text-base font-semibold text-slate-900">
-                                            {record.quantity_removed} units removed
+                                            {record.quantity_removed} units
+                                            {activeMode === 'organization' ? ' dispensed' : ' removed'}
                                           </div>
                                           <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                            record.removal_reason === 'dispensing_record_deleted' 
+                                            record.removal_reason === 'dispensing_record_dispensed'
+                                              ? 'bg-green-100 text-green-700'
+                                              : record.removal_reason === 'dispensing_record_deleted'
                                               ? 'bg-blue-100 text-blue-700'
                                               : record.removal_reason === 'bulk_deletion'
                                               ? 'bg-red-100 text-red-700'
                                               : 'bg-gray-100 text-gray-700'
                                           }`}>
-                                            {record.removal_reason === 'dispensing_record_deleted' ? 'Individual Delete' :
+                                            {record.removal_reason === 'dispensing_record_dispensed' ? 'Patient Dispensing' :
+                                             record.removal_reason === 'dispensing_record_deleted' ? 'Individual Delete' :
                                              record.removal_reason === 'bulk_deletion' ? 'Bulk Delete' :
                                              'Manual Adjustment'}
                                           </div>
@@ -597,8 +711,8 @@ export default function DrugUsageReport() {
                                       </div>
 
 
-                                      {/* Patient details (if individual deletion and we have patient data) */}
-                                      {record.removal_reason === 'dispensing_record_deleted' && hasMeaningfulPatientData && (
+                                      {/* Patient details (if we have patient data) */}
+                                      {(record.removal_reason === 'dispensing_record_deleted' || record.removal_reason === 'dispensing_record_dispensed') && hasMeaningfulPatientData && (
                                         <div className="bg-white rounded-md p-3 border border-slate-200 mb-2">
                                           <div className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -658,8 +772,8 @@ export default function DrugUsageReport() {
                                           </div>
                                         )}
                                         
-                                        {/* Show original notes for individual deletion if no structured data */}
-                                        {record.removal_reason === 'dispensing_record_deleted' && !patientInfo && record.notes && (
+                                        {/* Show original notes if no structured data */}
+                                        {(record.removal_reason === 'dispensing_record_deleted' || record.removal_reason === 'dispensing_record_dispensed') && !patientInfo && record.notes && (
                                           <div className="mt-2 p-2 bg-slate-100 rounded text-xs">
                                             <span className="font-medium">Note:</span> {record.notes}
                                           </div>

@@ -1,20 +1,27 @@
 'use client';
 
 import Navigation from '@/components/layout/Navigation';
+import { ModeAwareDrugDispensingService } from '@/lib/modeAwareDrugDispensingService';
 import { DrugDispensingService, DrugDispensingRecord, DispensingStats } from '@/lib/drugDispensingService';
+import { ModeAwarePatientService } from '@/lib/modeAwarePatientService';
 import { PatientService } from '@/lib/patientService';
 import { DatabaseService } from '@/lib/database';
 import { DrugInventoryService } from '@/lib/drugInventory';
 import { UserDrugInventory, PatientProfile } from '@/types/database';
 import { useState, useEffect, useRef } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
+import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
+import DrugDispensingOrganizationSelector from '@/components/drugDispensing/OrganizationSelector';
+import { supabase } from '@/lib/supabase';
 
 export default function DrugDispensing() {
   const { user } = useSupabaseAuth();
+  const { activeMode, organizationId } = useMultiOrgUserMode();
   const [dispensingHistory, setDispensingHistory] = useState<DrugDispensingRecord[]>([]);
   const [stats, setStats] = useState<DispensingStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [deletedItems, setDeletedItems] = useState<{[recordId: string]: {patientDeleted: boolean, diagnosisDeleted: boolean}}>({});
   const [inventoryData, setInventoryData] = useState<{[drugId: string]: number}>({});
   
@@ -59,7 +66,7 @@ export default function DrugDispensing() {
     if (user) {
       fetchData();
     }
-  }, [user, selectedPeriod]);
+  }, [user, selectedPeriod, activeMode, organizationId]);
   
   // Handle click outside to close dropdowns
   useEffect(() => {
@@ -107,9 +114,13 @@ export default function DrugDispensing() {
       setLoading(true);
       setError('');
 
-      // Fetch dispensing history
-      console.log('🔍 Fetching dispensing history...');
-      const { data: history, error: historyError } = await DrugDispensingService.getDispensingHistory(100);
+      // Fetch dispensing history using mode-aware service
+      console.log('🔍 Fetching dispensing history with mode:', { activeMode, organizationId });
+      const { data: history, error: historyError } = await ModeAwareDrugDispensingService.getDispensingHistory(
+        activeMode,
+        organizationId,
+        100
+      );
       if (historyError) {
         console.error('❌ Error fetching dispensing history:', historyError);
         throw new Error(historyError);
@@ -146,10 +157,10 @@ export default function DrugDispensing() {
     try {
       const deletedCheck: {[recordId: string]: {patientDeleted: boolean, diagnosisDeleted: boolean}} = {};
       
-      // Get all existing patients once
+      // Get all existing patients once using mode-aware service
       let existingPatients: any[] = [];
       try {
-        const { data: patients } = await PatientService.getPatients(1000);
+        const { data: patients } = await ModeAwarePatientService.getPatients(activeMode, organizationId);
         existingPatients = patients || [];
       } catch (err) {
         console.warn('Error fetching patients for deletion check:', err);
@@ -172,8 +183,30 @@ export default function DrugDispensing() {
         // Check if diagnosis still exists (for records with diagnosis_id)
         if (record.diagnosis_id) {
           try {
-            const { data, error } = await DatabaseService.getDiagnosis(record.diagnosis_id);
-            if (error || !data) {
+            let diagnosisExists = false;
+
+            if (activeMode === 'organization' && organizationId) {
+              // Check organization diagnoses table
+              const { data, error } = await supabase
+                .from('organization_diagnoses')
+                .select('id')
+                .eq('id', record.diagnosis_id)
+                .eq('organization_id', organizationId)
+                .single();
+
+              diagnosisExists = !error && !!data;
+            } else {
+              // Check individual diagnoses table
+              const { data, error } = await supabase
+                .from('diagnoses')
+                .select('id')
+                .eq('id', record.diagnosis_id)
+                .single();
+
+              diagnosisExists = !error && !!data;
+            }
+
+            if (!diagnosisExists) {
               deletedCheck[record.id].diagnosisDeleted = true;
             }
           } catch (err) {
@@ -559,6 +592,62 @@ export default function DrugDispensing() {
             </button>
           </div>
         </div>
+
+        {/* Organization/Individual Mode Selector */}
+        <DrugDispensingOrganizationSelector
+          onError={(error) => setError(error)}
+          onSuccess={(message) => {
+            setSuccessMessage(message);
+            // Clear success message after 3 seconds
+            setTimeout(() => setSuccessMessage(null), 3000);
+          }}
+        />
+
+        {/* Success Message */}
+        {successMessage && (
+          <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex">
+              <svg className="w-5 h-5 text-green-400 mt-0.5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <h3 className="text-sm font-medium text-green-800">Success</h3>
+                <p className="text-sm text-green-700 mt-1">{successMessage}</p>
+              </div>
+              <button
+                onClick={() => setSuccessMessage(null)}
+                className="ml-auto text-green-400 hover:text-green-600"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex">
+              <svg className="w-5 h-5 text-red-400 mt-0.5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <h3 className="text-sm font-medium text-red-800">Error</h3>
+                <p className="text-sm text-red-700 mt-1">{error}</p>
+              </div>
+              <button
+                onClick={() => setError('')}
+                className="ml-auto text-red-400 hover:text-red-600"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Manual Dispensing Form */}
         {showManualForm && (
@@ -1260,7 +1349,11 @@ export default function DrugDispensing() {
                             
                             if (confirmed) {
                               try {
-                                const { success, error } = await DrugDispensingService.deleteDispensingRecord(record.id);
+                                const { success, error } = await ModeAwareDrugDispensingService.deleteDispensing(
+                                  record.id,
+                                  activeMode,
+                                  organizationId
+                                );
                                 
                                 if (success) {
                                   // Remove the record from local state

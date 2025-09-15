@@ -74,10 +74,36 @@ export default function Patients() {
   const handleDeletePatient = async (patientId: string) => {
     try {
       setDeletingPatient(patientId);
-      // TODO: Implement mode-aware patient deletion
-      setError('Patient deletion not yet implemented for mode-aware service');
-      setShowDeleteConfirm(null);
+
+      console.log('Deleting patient:', { patientId, activeMode, organizationId });
+
+      if (!patientId) {
+        console.error('Patient ID is empty or undefined');
+        setError('Invalid patient ID - cannot delete patient');
+        return;
+      }
+
+      const { error: deleteError } = await ModeAwarePatientService.deletePatient(
+        patientId,
+        activeMode,
+        organizationId
+      );
+
+      console.log('Delete result:', { deleteError });
+
+      if (deleteError) {
+        setError('Failed to delete patient: ' + deleteError);
+      } else {
+        // Remove the patient from local state
+        setPatients(prev => prev.filter(p => p.id !== patientId));
+        setShowDeleteConfirm(null);
+        setSuccessMessage('Patient deleted successfully');
+
+        // Clear any error messages
+        setError('');
+      }
     } catch (err) {
+      console.error('Error deleting patient:', err);
       setError('Failed to delete patient');
     } finally {
       setDeletingPatient(null);
@@ -308,7 +334,10 @@ export default function Patients() {
                             View Details
                           </Link>
                           <button
-                            onClick={() => setShowDeleteConfirm(patient.id)}
+                            onClick={() => {
+                              console.log('Setting delete confirm for patient:', patient.id, patient);
+                              setShowDeleteConfirm(patient.id);
+                            }}
                             className="text-red-600 hover:text-red-800 font-medium"
                           >
                             Delete
@@ -369,7 +398,10 @@ export default function Patients() {
                 Cancel
               </button>
               <button
-                onClick={() => handleDeletePatient(showDeleteConfirm)}
+                onClick={() => {
+                  console.log('Delete button clicked with showDeleteConfirm:', showDeleteConfirm);
+                  handleDeletePatient(showDeleteConfirm as string);
+                }}
                 disabled={deletingPatient === showDeleteConfirm}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
               >

@@ -377,14 +377,19 @@ export class OrganizationPatientService {
     }
 
     try {
+      console.log('OrganizationPatientService.deleteOrganizationPatient called with patientId:', patientId);
+
       // Soft delete by setting is_active to false
-      const { error } = await supabase
+      const { error, data } = await supabase
         .from('organization_patients')
         .update({
           is_active: false,
           updated_by: user.id
         })
-        .eq('id', patientId);
+        .eq('id', patientId)
+        .select();
+
+      console.log('Organization patient deletion query result:', { error, data, affectedRows: data?.length });
 
       if (error) {
         console.error('Error deleting organization patient:', error);
@@ -424,5 +429,106 @@ export class OrganizationPatientService {
     }
 
     return { data, error: null };
+  }
+
+  // Get patient diagnoses for organization mode
+  static async getPatientDiagnoses(
+    patientId: string,
+    organizationId: string
+  ): Promise<{
+    data: OrganizationDiagnosis[] | null;
+    error: string | null;
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated' };
+    }
+
+    try {
+      console.log('Fetching organization diagnoses for patientId:', patientId, 'organizationId:', organizationId);
+
+      // First, get the patient to get their identifying information
+      const { data: patient, error: patientError } = await supabase
+        .from('organization_patients')
+        .select('*')
+        .eq('id', patientId)
+        .eq('organization_id', organizationId)
+        .single();
+
+      if (patientError) {
+        console.error('Error fetching organization patient for diagnoses:', patientError);
+        return { data: null, error: patientError.message };
+      }
+
+      let diagnoses: any[] = [];
+      let diagnosesError = null;
+
+      // First try to get diagnoses by patient_id if available
+      if (patient.patient_id) {
+        console.log('Searching for diagnoses by patient_id:', patient.patient_id);
+        const { data, error } = await supabase
+          .from('organization_diagnoses')
+          .select('*')
+          .eq('organization_id', organizationId)
+          .eq('patient_id', patient.patient_id)
+          .order('created_at', { ascending: false });
+
+        console.log('Organization diagnoses found by patient_id:', data?.length || 0, 'error:', error);
+        diagnoses = data || [];
+        diagnosesError = error;
+      }
+
+      // If no diagnoses found by patient_id, try by name + date_of_birth
+      if (diagnoses.length === 0 && !diagnosesError && patient.date_of_birth) {
+        console.log('Searching for diagnoses by name + DOB:', patient.patient_name, patient.date_of_birth);
+        const { data, error } = await supabase
+          .from('organization_diagnoses')
+          .select('*')
+          .eq('organization_id', organizationId)
+          .eq('patient_name', patient.patient_name)
+          .eq('date_of_birth', patient.date_of_birth)
+          .order('created_at', { ascending: false });
+
+        console.log('Organization diagnoses found by name + DOB:', data?.length || 0, 'error:', error);
+        diagnoses = [...diagnoses, ...(data || [])];
+        diagnosesError = error;
+      }
+
+      // Finally, fall back to name matching for backward compatibility
+      if (diagnoses.length === 0 && !diagnosesError) {
+        console.log('Searching for diagnoses by name only:', patient.patient_name);
+        const { data, error } = await supabase
+          .from('organization_diagnoses')
+          .select('*')
+          .eq('organization_id', organizationId)
+          .eq('patient_name', patient.patient_name)
+          .order('created_at', { ascending: false });
+
+        console.log('Organization diagnoses found by name only:', data?.length || 0, 'error:', error);
+
+        // Filter results to ensure they match the full name if surname is available
+        const filteredData = (data || []).filter(diagnosis => {
+          if (!patient.patient_surname || !diagnosis.patient_surname) {
+            return true; // Include if either doesn't have surname
+          }
+          return diagnosis.patient_surname === patient.patient_surname;
+        });
+
+        diagnoses = [...diagnoses, ...filteredData];
+        diagnosesError = error;
+      }
+
+      if (diagnosesError) {
+        console.error('Error fetching organization patient diagnoses:', diagnosesError);
+        return { data: null, error: diagnosesError.message };
+      }
+
+      console.log('Total organization diagnoses found:', diagnoses.length);
+      return { data: diagnoses, error: null };
+    } catch (error) {
+      console.error('Error fetching organization patient diagnoses:', error);
+      return { data: null, error: 'Failed to fetch patient diagnoses' };
+    }
   }
 }
