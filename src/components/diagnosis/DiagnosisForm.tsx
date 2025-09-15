@@ -597,9 +597,20 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   // Drug search and autocomplete functions
   const fetchUserDrugInventory = async () => {
     try {
-      const { data, error } = await DrugInventoryService.getUserDrugInventory();
+      const { data, error } = await ModeAwareDrugInventoryService.getDrugInventory(
+        activeMode,
+        organizationId
+      );
       if (data && !error) {
         setUserDrugInventory(data);
+        console.log('✅ Loaded drug inventory:', {
+          mode: activeMode,
+          organizationId,
+          count: data.length,
+          items: data.map(d => d.drug_name)
+        });
+      } else {
+        console.error('❌ Error loading drug inventory:', error);
       }
     } catch (err) {
       console.log('Could not fetch drug inventory:', err);
@@ -651,6 +662,14 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       fetchUserDrugInventory();
     }
   }, [isEditing, diagnosisResult]);
+
+  // Refetch inventory when mode or organization changes
+  useEffect(() => {
+    if (isEditing || diagnosisResult) {
+      setUserDrugInventory([]); // Clear current inventory
+      fetchUserDrugInventory(); // Load fresh inventory for the current mode
+    }
+  }, [activeMode, organizationId]);
 
   // Initialize drug quantities when diagnosis result is set
   useEffect(() => {

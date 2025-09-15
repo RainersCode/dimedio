@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { DrugDispensingService } from './drugDispensingService';
 import { OrganizationInventoryUsageService } from './organizationInventoryUsageService';
+import { InventoryUsageService } from './inventoryUsageService';
 import type { UserWorkingMode } from '@/contexts/MultiOrgUserModeContext';
 import type { DrugUsageHistory } from '@/types/database';
 import type { OrganizationDrugUsageHistory } from '@/types/organization';
@@ -412,6 +413,43 @@ export class ModeAwareDrugDispensingService {
             return { success: false, error: 'Record not found', mode: 'individual' };
           }
           return { success: false, error: checkError.message, mode: 'individual' };
+        }
+
+        console.log('✅ Found individual record to delete:', existingRecord);
+
+        // Record this deletion in inventory usage history for tracking
+        try {
+          // Get drug name for the usage record
+          const { data: drugData } = await supabase
+            .from('user_drug_inventory')
+            .select('drug_name')
+            .eq('id', existingRecord.drug_id)
+            .eq('user_id', user.id)
+            .single();
+
+          const drugName = drugData?.drug_name || 'Unknown Drug';
+          const notes = existingRecord.notes ?
+            `Patient: ${existingRecord.patient_info?.patient_name || 'Unknown'} | Diagnosis: ${existingRecord.patient_info?.primary_diagnosis || 'Unknown'} | Quantity: ${existingRecord.quantity_dispensed} | Notes: ${existingRecord.notes}` :
+            `Patient: ${existingRecord.patient_info?.patient_name || 'Unknown'} | Diagnosis: ${existingRecord.patient_info?.primary_diagnosis || 'Unknown'} | Quantity: ${existingRecord.quantity_dispensed}`;
+
+          // Use the InventoryUsageService to record usage
+          const { success, error: usageError } = await InventoryUsageService.recordInventoryUsage(
+            existingRecord.drug_id,
+            drugName,
+            existingRecord.quantity_dispensed,
+            'dispensing_record_deleted',
+            existingRecord.id,
+            existingRecord.patient_info?.patient_name || 'Unknown',
+            notes
+          );
+
+          if (!success) {
+            console.error('Error recording individual usage history:', usageError);
+          } else {
+            console.log('Successfully recorded individual usage history for deletion');
+          }
+        } catch (usageTrackingError) {
+          console.error('Failed to record individual usage tracking:', usageTrackingError);
         }
 
         // Note: We do NOT restore inventory quantity when deleting dispensing records
