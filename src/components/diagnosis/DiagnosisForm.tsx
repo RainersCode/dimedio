@@ -819,7 +819,19 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         // If n8n fails, we still have the diagnosis saved, just without AI results
         console.error('n8n error:', n8nError);
         setError(`Diagnosis saved, but AI analysis failed: ${n8nError}`);
+
+        // Still create patient profile even if AI analysis fails
+        try {
+          await ModeAwarePatientService.savePatientFromDiagnosis(diagnosis, activeMode, organizationId);
+        } catch (patientError) {
+          console.warn('Failed to create patient profile after n8n error:', patientError);
+        }
+
         onDiagnosisComplete?.(diagnosis.id);
+
+        // Trigger refresh even after n8n failure (with small delay to ensure DB operations complete)
+        setTimeout(triggerUndispensedMedicationsRefresh, 100);
+
         return;
       }
 
@@ -845,10 +857,20 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         }
       }
 
+      // Create patient profile so patient appears in patient list immediately
+      try {
+        // Use the final diagnosis (either original or updated) for patient creation
+        const finalDiagnosis = updatedDiagnosis || diagnosis;
+        await ModeAwarePatientService.savePatientFromDiagnosis(finalDiagnosis, activeMode, organizationId);
+      } catch (patientError) {
+        console.warn('Failed to create patient profile:', patientError);
+        // Don't fail the whole process if patient creation fails
+      }
+
       onDiagnosisComplete?.(diagnosis.id);
-      
-      // Trigger immediate refresh of undispensed medications indicators
-      triggerUndispensedMedicationsRefresh();
+
+      // Trigger immediate refresh of undispensed medications indicators after patient creation (with small delay to ensure DB operations complete)
+      setTimeout(triggerUndispensedMedicationsRefresh, 100);
 
     } catch (err) {
       console.error('Diagnosis error:', err);

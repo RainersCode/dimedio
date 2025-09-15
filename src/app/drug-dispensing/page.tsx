@@ -16,7 +16,7 @@ import { supabase } from '@/lib/supabase';
 
 export default function DrugDispensing() {
   const { user } = useSupabaseAuth();
-  const { activeMode, organizationId } = useMultiOrgUserMode();
+  const { activeMode, organizationId, loading: modeLoading } = useMultiOrgUserMode();
   const [dispensingHistory, setDispensingHistory] = useState<DrugDispensingRecord[]>([]);
   const [stats, setStats] = useState<DispensingStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,36 +49,75 @@ export default function DrugDispensing() {
   const drugDropdownRef = useRef<HTMLDivElement>(null);
   const patientDropdownRef = useRef<HTMLDivElement>(null);
   const diagnosisDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Refs for manual form dropdowns
+  const manualDrugDropdownRef = useRef<HTMLDivElement>(null);
+  const manualPatientDropdownRef = useRef<HTMLDivElement>(null);
   
   // Manual dispensing form
   const [showManualForm, setShowManualForm] = useState(false);
   const [drugSearch, setDrugSearch] = useState('');
   const [drugSuggestions, setDrugSuggestions] = useState<UserDrugInventory[]>([]);
   const [selectedDrug, setSelectedDrug] = useState<UserDrugInventory | null>(null);
+  const [showDrugDropdownManual, setShowDrugDropdownManual] = useState(false);
   const [patientSearch, setPatientSearch] = useState('');
   const [patientSuggestions, setPatientSuggestions] = useState<PatientProfile[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
+  const [showPatientDropdownManual, setShowPatientDropdownManual] = useState(false);
   const [quantity, setQuantity] = useState<number>(1);
   const [notes, setNotes] = useState('');
   const [addingDispensing, setAddingDispensing] = useState(false);
 
+  // Cache for performance optimization
+  const [cachedDrugs, setCachedDrugs] = useState<UserDrugInventory[] | null>(null);
+  const [cachedPatients, setCachedPatients] = useState<PatientProfile[] | null>(null);
+  const [cachedDispensingHistory, setCachedDispensingHistory] = useState<DrugDispensingRecord[] | null>(null);
+  const [lastFetchParams, setLastFetchParams] = useState<string>('');
+  const [loadingDropdown, setLoadingDropdown] = useState(false);
+
   useEffect(() => {
-    if (user) {
+    if (user && !modeLoading && activeMode !== undefined) {
+      console.log('🔄 Fetching data with context:', {
+        user: !!user,
+        activeMode,
+        organizationId,
+        modeLoading,
+        contextReady: !modeLoading && activeMode !== undefined
+      });
       fetchData();
+    } else {
+      console.log('⏳ Waiting for context to be ready:', {
+        user: !!user,
+        modeLoading,
+        activeMode,
+        organizationId
+      });
     }
-  }, [user, selectedPeriod, activeMode, organizationId]);
+  }, [user, selectedPeriod, activeMode, organizationId, modeLoading]);
   
   // Handle click outside to close dropdowns
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (drugDropdownRef.current && !drugDropdownRef.current.contains(event.target as Node)) {
+      const target = event.target as Element;
+      if (!target) return;
+
+      if (drugDropdownRef.current && !drugDropdownRef.current.contains(target)) {
         setShowDrugDropdown(false);
       }
-      if (patientDropdownRef.current && !patientDropdownRef.current.contains(event.target as Node)) {
+      if (patientDropdownRef.current && !patientDropdownRef.current.contains(target)) {
         setShowPatientDropdown(false);
       }
-      if (diagnosisDropdownRef.current && !diagnosisDropdownRef.current.contains(event.target as Node)) {
+      if (diagnosisDropdownRef.current && !diagnosisDropdownRef.current.contains(target)) {
         setShowDiagnosisDropdown(false);
+      }
+      // Manual form dropdowns
+      if (manualDrugDropdownRef.current && !manualDrugDropdownRef.current.contains(target)) {
+        setShowDrugDropdownManual(false);
+        setDrugSuggestions([]);
+      }
+      if (manualPatientDropdownRef.current && !manualPatientDropdownRef.current.contains(target)) {
+        setShowPatientDropdownManual(false);
+        setPatientSuggestions([]);
       }
     };
 
@@ -95,7 +134,7 @@ export default function DrugDispensing() {
         console.warn('Could not fetch inventory data:', error);
         return;
       }
-      
+
       // Create a mapping of drug_id to stock_quantity
       const inventoryMap: {[drugId: string]: number} = {};
       if (inventory) {
@@ -114,37 +153,87 @@ export default function DrugDispensing() {
       setLoading(true);
       setError('');
 
+      // Ensure we have proper mode context before fetching
+      if (activeMode === undefined || modeLoading) {
+        console.warn('⚠️ Context not ready, skipping fetch:', { activeMode, modeLoading });
+        setLoading(false);
+        return;
+      }
+
+      // Create cache key for current fetch parameters
+      const cacheKey = `${activeMode}-${organizationId}-${selectedPeriod}`;
+
+      // Use cached data if available and parameters haven't changed
+      if (cachedDispensingHistory && lastFetchParams === cacheKey) {
+        console.log('📋 Using cached dispensing history');
+        setDispensingHistory(cachedDispensingHistory);
+        setLoading(false);
+        return;
+      }
+
       // Fetch dispensing history using mode-aware service
-      console.log('🔍 Fetching dispensing history with mode:', { activeMode, organizationId });
+      console.log('🔍 Fetching dispensing history with mode:', { activeMode, organizationId, userExists: !!user });
       const { data: history, error: historyError } = await ModeAwareDrugDispensingService.getDispensingHistory(
         activeMode,
         organizationId,
-        100
+        50 // Reduced from 100 for faster initial load
       );
+
+      console.log('🔍 Service response:', {
+        historyError,
+        historyLength: history?.length,
+        historyExists: !!history,
+        isArray: Array.isArray(history)
+      });
+
       if (historyError) {
         console.error('❌ Error fetching dispensing history:', historyError);
         throw new Error(historyError);
       }
-      console.log('✅ Dispensing history fetched:', history?.length, 'records');
-      console.log('📋 First few records:', history?.slice(0, 3));
-      
-      
-      setDispensingHistory(history || []);
 
-      // Fetch statistics
-      const { data: statsData, error: statsError } = await DrugDispensingService.getDispensingSummary(selectedPeriod);
+      console.log('✅ Dispensing history fetched:', history?.length, 'records');
+      if (history && history.length > 0) {
+        console.log('📋 First record sample:', {
+          id: history[0].id,
+          drug_name: history[0].drug_name,
+          patient_name: history[0].patient_name,
+          dispensed_date: history[0].dispensed_date
+        });
+      } else {
+        console.log('⚠️ No dispensing records found');
+      }
+
+      const historyData = history || [];
+      setDispensingHistory(historyData);
+
+      // Cache the results
+      setCachedDispensingHistory(historyData);
+      setLastFetchParams(cacheKey);
+
+      // Fetch statistics using mode-aware service
+      const { data: statsData, error: statsError } = await ModeAwareDrugDispensingService.getDispensingSummary(
+        activeMode,
+        organizationId,
+        selectedPeriod
+      );
       if (statsError) {
         throw new Error(statsError);
       }
       setStats(statsData);
 
+      // Run parallel operations for better performance
+      const parallelOperations = [];
+
       // Check for deleted patients and diagnoses
-      if (history && history.length > 0) {
-        checkForDeletedItems(history);
+      if (historyData.length > 0) {
+        parallelOperations.push(checkForDeletedItems(historyData));
       }
 
-      // Fetch inventory data
-      await fetchInventoryData();
+      // Fetch inventory data in parallel
+      parallelOperations.push(fetchInventoryData());
+
+      // Wait for all parallel operations to complete
+      await Promise.all(parallelOperations);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch data');
@@ -173,7 +262,11 @@ export default function DrugDispensing() {
         };
 
         // Check if patient still exists (for records with patient names)
-        if (record.patient_name && record.patient_name !== 'Unknown Patient' && record.patient_name !== 'Anonymous Patient') {
+        // Skip manual entries and inventory management records
+        if (record.patient_name &&
+            record.patient_name !== 'Unknown Patient' &&
+            record.patient_name !== 'Anonymous Patient' &&
+            record.patient_name !== 'No patient specified') {
           const patientExists = existingPatients.some(p => p.patient_name === record.patient_name);
           if (!patientExists) {
             deletedCheck[record.id].patientDeleted = true;
@@ -247,42 +340,106 @@ export default function DrugDispensing() {
   const searchDrugs = async (searchTerm: string) => {
     if (searchTerm.length < 2) {
       setDrugSuggestions([]);
+      setShowDrugDropdownManual(false);
       return;
     }
-    
+
     try {
       const { data: inventory } = await DrugInventoryService.getUserDrugInventory();
       if (inventory) {
-        const filtered = inventory.filter(drug => 
+        const filtered = inventory.filter(drug =>
           drug.drug_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
           drug.generic_name?.toLowerCase().includes(searchTerm.toLowerCase())
         ).slice(0, 10); // Limit to 10 suggestions
         setDrugSuggestions(filtered);
+        setShowDrugDropdownManual(filtered.length > 0);
       }
     } catch (err) {
       console.error('Error searching drugs:', err);
     }
   };
 
-  // Patient search functionality  
+  // Show all available drugs when dropdown arrow is clicked
+  const showAllDrugs = async () => {
+    try {
+      setLoadingDropdown(true);
+
+      // Use cached data if available
+      if (cachedDrugs) {
+        setDrugSuggestions(cachedDrugs);
+        setShowDrugDropdownManual(true);
+        setLoadingDropdown(false);
+        return;
+      }
+
+      const { data: inventory } = await DrugInventoryService.getUserDrugInventory();
+      if (inventory) {
+        // Sort by drug name and cache for future use
+        const sortedDrugs = inventory.sort((a, b) =>
+          a.drug_name.toLowerCase().localeCompare(b.drug_name.toLowerCase())
+        );
+        setCachedDrugs(sortedDrugs);
+        setDrugSuggestions(sortedDrugs);
+        setShowDrugDropdownManual(true);
+      }
+    } catch (err) {
+      console.error('Error loading all drugs:', err);
+    } finally {
+      setLoadingDropdown(false);
+    }
+  };
+
+  // Patient search functionality
   const searchPatients = async (searchTerm: string) => {
     if (searchTerm.length < 2) {
       setPatientSuggestions([]);
+      setShowPatientDropdownManual(false);
       return;
     }
-    
+
     try {
-      const { data: patients } = await PatientService.getPatients(50);
+      const { data: patients } = await ModeAwarePatientService.getPatients(activeMode, organizationId);
       if (patients) {
-        const filtered = patients.filter(patient => 
+        const filtered = patients.filter(patient =>
           patient.patient_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
           patient.patient_surname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
           patient.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
         ).slice(0, 10); // Limit to 10 suggestions
         setPatientSuggestions(filtered);
+        setShowPatientDropdownManual(filtered.length > 0);
       }
     } catch (err) {
       console.error('Error searching patients:', err);
+    }
+  };
+
+  // Show all available patients when dropdown arrow is clicked
+  const showAllPatients = async () => {
+    try {
+      setLoadingDropdown(true);
+
+      // Use cached data if available
+      if (cachedPatients) {
+        setPatientSuggestions(cachedPatients);
+        setShowPatientDropdownManual(true);
+        setLoadingDropdown(false);
+        return;
+      }
+
+      const { data: patients } = await ModeAwarePatientService.getPatients(activeMode, organizationId);
+      if (patients) {
+        // Sort by patient name and cache for future use
+        const sortedPatients = patients.sort((a, b) =>
+          a.patient_name.toLowerCase().localeCompare(b.patient_name.toLowerCase())
+        );
+        setCachedPatients(sortedPatients);
+        setPatientSuggestions(sortedPatients);
+        setShowPatientDropdownManual(true);
+      }
+    } catch (err) {
+      console.error('Error loading all patients:', err);
+    } finally {
+      setLoadingDropdown(false);
     }
   };
 
@@ -429,8 +586,8 @@ export default function DrugDispensing() {
 
   // Handle manual dispensing submission
   const handleManualDispensing = async () => {
-    if (!selectedDrug || !selectedPatient || quantity < 1) {
-      setError('Please fill in all required fields');
+    if (!selectedDrug || quantity < 1) {
+      setError('Please select a drug and enter quantity');
       return;
     }
 
@@ -438,24 +595,33 @@ export default function DrugDispensing() {
       setAddingDispensing(true);
       setError('');
 
-      const { error } = await DrugDispensingService.recordDispensing(
-        selectedDrug.id,
+      // Use mode-aware dispensing service for manual entries
+      const dispensingRecord = {
+        drugId: selectedDrug.id,
+        drugName: selectedDrug.drug_name,
+        quantity: quantity,
+        notes: notes || 'Manually added to dispensing history'
+      };
+
+      const { error } = await ModeAwareDrugDispensingService.recordDispensing(
+        [dispensingRecord],
         null, // No diagnosis ID for manual entries
-        quantity,
         {
-          patient_name: selectedPatient.patient_name,
-          patient_age: selectedPatient.patient_age,
-          patient_gender: selectedPatient.patient_gender,
-          primary_diagnosis: 'Manual dispensing'
+          patient_name: selectedPatient?.patient_name || 'No patient specified',
+          patient_age: selectedPatient?.patient_age,
+          patient_gender: selectedPatient?.patient_gender,
+          primary_diagnosis: selectedPatient ? 'Manual dispensing' : 'Inventory management'
         },
-        notes || 'Manually added to dispensing history'
+        activeMode,
+        organizationId,
+        true // Skip duplicate check for manual entries
       );
 
       if (error) {
         throw new Error(error);
       }
 
-      // Reset form
+      // Reset form but keep it open
       setSelectedDrug(null);
       setSelectedPatient(null);
       setQuantity(1);
@@ -464,9 +630,21 @@ export default function DrugDispensing() {
       setPatientSearch('');
       setDrugSuggestions([]);
       setPatientSuggestions([]);
-      setShowManualForm(false);
 
-      // Refresh data
+      // Clear any error messages
+      setError('');
+
+      // Show success message after a brief delay to ensure form reset is visible
+      setTimeout(() => {
+        setSuccessMessage('Manual dispensing added successfully!');
+        setTimeout(() => setSuccessMessage(null), 3000);
+      }, 100);
+
+      // Clear cache and refresh data
+      setCachedDrugs(null);
+      setCachedPatients(null);
+      setCachedDispensingHistory(null);
+      setLastFetchParams('');
       await fetchData();
       
     } catch (err) {
@@ -500,6 +678,24 @@ export default function DrugDispensing() {
     );
   }
 
+  // Show loading state while context is initializing
+  if (modeLoading || activeMode === undefined) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <Navigation />
+        <div className="flex items-center justify-center h-64">
+          <div className="flex items-center">
+            <svg className="w-5 h-5 mr-2 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p className="text-slate-600">Loading user context...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <Navigation />
@@ -511,86 +707,12 @@ export default function DrugDispensing() {
             <h1 className="text-3xl font-bold text-slate-900">Drug Dispensing History</h1>
             <p className="text-slate-600 mt-2">Track medications dispensed to patients and inventory usage</p>
           </div>
-          <div className="flex gap-2">
-            <button 
-              onClick={() => setShowManualForm(!showManualForm)}
-              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
-            >
-              {showManualForm ? 'Cancel' : 'Add Manual Dispensing'}
-            </button>
-            <button 
-              onClick={async () => {
-                const { results, error } = await DrugDispensingService.testDatabasePermissions();
-                if (error) {
-                  console.error('Permission test error:', error);
-                  alert('❌ Permission test failed: ' + error);
-                } else {
-                  console.log('🔍 Permission test results:', results);
-                  alert(`🔍 Database Permissions Test:\n\n` +
-                    `User ID: ${results.user_id}\n` +
-                    `Can SELECT: ${results.canSelect}\n` +
-                    `Record Count: ${results.recordCount}\n` +
-                    `Has Sample Record: ${!!results.sampleRecord}\n` +
-                    `Errors: ${results.errors.length > 0 ? results.errors.join(', ') : 'None'}`);
-                }
-              }}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Test DB Permissions
-            </button>
-            <button 
-              onClick={async () => {
-                const confirmed = window.confirm(
-                  '🔍 Remove Duplicate Dispensing Records?\n\n' +
-                  'This will find and remove duplicate dispensing records (same diagnosis + same drug). ' +
-                  'The earliest record for each drug will be kept.\n\n' +
-                  'This action cannot be undone. Continue?'
-                );
-                
-                if (confirmed) {
-                  try {
-                    setLoading(true);
-                    const { success, duplicatesRemoved, error } = await DrugDispensingService.removeDuplicateDispensings();
-                    
-                    if (success) {
-                      await fetchData(); // Refresh the data
-                      if (duplicatesRemoved > 0) {
-                        alert(`✅ Successfully removed ${duplicatesRemoved} duplicate records!`);
-                      } else {
-                        alert('✅ No duplicates found. Your dispensing history is clean!');
-                      }
-                    } else {
-                      setError(error || 'Failed to remove duplicates');
-                      alert('❌ Failed to remove duplicates: ' + (error || 'Unknown error'));
-                    }
-                  } catch (err) {
-                    const errorMsg = err instanceof Error ? err.message : 'Unknown error occurred';
-                    setError(errorMsg);
-                    alert('❌ Error removing duplicates: ' + errorMsg);
-                  } finally {
-                    setLoading(false);
-                  }
-                }
-              }}
-              className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
-            >
-              Remove Duplicates
-            </button>
-            <button 
-              onClick={async () => {
-                const { data, error } = await DrugDispensingService.createTestDispensingRecord();
-                if (error) {
-                  setError(error);
-                } else {
-                  console.log('Test record created:', data);
-                  fetchData(); // Refresh the data
-                }
-              }}
-              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              Create Test Record
-            </button>
-          </div>
+          <button
+            onClick={() => setShowManualForm(!showManualForm)}
+            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+          >
+            {showManualForm ? 'Cancel' : 'Add Manual Dispensing'}
+          </button>
         </div>
 
         {/* Organization/Individual Mode Selector */}
@@ -654,32 +776,61 @@ export default function DrugDispensing() {
           <div className="bg-white rounded-xl border border-slate-200 mb-8">
             <div className="px-6 py-4 border-b border-slate-200">
               <h2 className="text-lg font-semibold text-slate-900">Add Manual Dispensing</h2>
-              <p className="text-sm text-slate-600 mt-1">Add drugs given to patients that weren't recorded during diagnosis</p>
+              <p className="text-sm text-slate-600 mt-1">Add drugs dispensed to patients or manage inventory (e.g., expired drugs, stock adjustments)</p>
             </div>
             <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                 {/* Drug Search */}
-                <div className="relative">
+                <div className="relative" ref={manualDrugDropdownRef}>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Drug *</label>
-                  <input
-                    type="text"
-                    placeholder="Search drug name..."
-                    value={drugSearch}
-                    onChange={(e) => {
-                      setDrugSearch(e.target.value);
-                      searchDrugs(e.target.value);
-                    }}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                  />
-                  {drugSuggestions.length > 0 && (
+                  <div className="relative flex">
+                    <input
+                      type="text"
+                      placeholder="Search drug name..."
+                      value={drugSearch}
+                      onChange={(e) => {
+                        setDrugSearch(e.target.value);
+                        searchDrugs(e.target.value);
+                      }}
+                      onFocus={() => {
+                        if (drugSearch && drugSearch.length >= 2) {
+                          searchDrugs(drugSearch);
+                        }
+                      }}
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded-l-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (showDrugDropdownManual) {
+                          setShowDrugDropdownManual(false);
+                          setDrugSuggestions([]);
+                        } else {
+                          showAllDrugs();
+                        }
+                      }}
+                      disabled={loadingDropdown}
+                      className="px-3 py-2 bg-slate-100 border border-slate-300 border-l-0 rounded-r-lg text-slate-700 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-inset disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={showDrugDropdownManual ? "Close dropdown" : "Show all drugs"}
+                    >
+                      {loadingDropdown ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      ) : showDrugDropdownManual ? "▲" : "▼"}
+                    </button>
+                  </div>
+                  {showDrugDropdownManual && drugSuggestions.length > 0 && (
                     <div className="absolute z-10 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                       {drugSuggestions.map((drug) => (
                         <div
                           key={drug.id}
                           onClick={() => {
                             setSelectedDrug(drug);
-                            setDrugSearch(drug.drug_name);
+                            setDrugSearch('');
                             setDrugSuggestions([]);
+                            setShowDrugDropdownManual(false);
                           }}
                           className="px-3 py-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0"
                         >
@@ -687,7 +838,21 @@ export default function DrugDispensing() {
                           <div className="text-sm text-slate-600">
                             {drug.strength && `${drug.strength} • `}
                             {drug.dosage_form && `${drug.dosage_form} • `}
-                            Stock: {drug.stock_quantity}
+                            <span className={`font-medium ${drug.stock_quantity > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                              Stock: {drug.stock_quantity}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            {drug.expiry_date && (
+                              <span className={`mr-3 ${
+                                new Date(drug.expiry_date) < new Date() ? 'text-red-600 font-medium' :
+                                new Date(drug.expiry_date) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-amber-600 font-medium' :
+                                'text-slate-500'
+                              }`}>
+                                Exp: {new Date(drug.expiry_date).toLocaleDateString()}
+                              </span>
+                            )}
+                            {drug.generic_name && <span>Generic: {drug.generic_name}</span>}
                           </div>
                         </div>
                       ))}
@@ -695,33 +860,76 @@ export default function DrugDispensing() {
                   )}
                   {selectedDrug && (
                     <div className="mt-2 p-2 bg-emerald-50 border border-emerald-200 rounded">
-                      <div className="text-sm font-medium text-emerald-900">Selected: {selectedDrug.drug_name}</div>
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-medium text-emerald-900">Selected: {selectedDrug.drug_name}</div>
+                        <button
+                          onClick={() => {
+                            setSelectedDrug(null);
+                            setDrugSearch('');
+                          }}
+                          className="ml-2 p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 rounded transition-colors"
+                          title="Clear selection"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
 
                 {/* Patient Search */}
-                <div className="relative">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Patient *</label>
-                  <input
-                    type="text"
-                    placeholder="Search patient name..."
-                    value={patientSearch}
-                    onChange={(e) => {
-                      setPatientSearch(e.target.value);
-                      searchPatients(e.target.value);
-                    }}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                  />
-                  {patientSuggestions.length > 0 && (
+                <div className="relative" ref={manualPatientDropdownRef}>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Patient <span className="text-slate-500 font-normal">(optional)</span></label>
+                  <div className="relative flex">
+                    <input
+                      type="text"
+                      placeholder="Search patient name (optional)..."
+                      value={patientSearch}
+                      onChange={(e) => {
+                        setPatientSearch(e.target.value);
+                        searchPatients(e.target.value);
+                      }}
+                      onFocus={() => {
+                        if (patientSearch && patientSearch.length >= 2) {
+                          searchPatients(patientSearch);
+                        }
+                      }}
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded-l-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (showPatientDropdownManual) {
+                          setShowPatientDropdownManual(false);
+                          setPatientSuggestions([]);
+                        } else {
+                          showAllPatients();
+                        }
+                      }}
+                      disabled={loadingDropdown}
+                      className="px-3 py-2 bg-slate-100 border border-slate-300 border-l-0 rounded-r-lg text-slate-700 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-inset disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={showPatientDropdownManual ? "Close dropdown" : "Show all patients"}
+                    >
+                      {loadingDropdown ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      ) : showPatientDropdownManual ? "▲" : "▼"}
+                    </button>
+                  </div>
+                  {showPatientDropdownManual && patientSuggestions.length > 0 && (
                     <div className="absolute z-10 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                       {patientSuggestions.map((patient) => (
                         <div
                           key={patient.id}
                           onClick={() => {
                             setSelectedPatient(patient);
-                            setPatientSearch(`${patient.patient_name} ${patient.patient_surname || ''}`.trim());
+                            setPatientSearch('');
                             setPatientSuggestions([]);
+                            setShowPatientDropdownManual(false);
                           }}
                           className="px-3 py-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0"
                         >
@@ -739,8 +947,22 @@ export default function DrugDispensing() {
                   )}
                   {selectedPatient && (
                     <div className="mt-2 p-2 bg-emerald-50 border border-emerald-200 rounded">
-                      <div className="text-sm font-medium text-emerald-900">
-                        Selected: {selectedPatient.patient_name} {selectedPatient.patient_surname}
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-medium text-emerald-900">
+                          Selected: {selectedPatient.patient_name} {selectedPatient.patient_surname}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedPatient(null);
+                            setPatientSearch('');
+                          }}
+                          className="ml-2 p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 rounded transition-colors"
+                          title="Clear selection"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
                       </div>
                     </div>
                   )}
@@ -775,7 +997,7 @@ export default function DrugDispensing() {
               <div className="flex gap-2">
                 <button
                   onClick={handleManualDispensing}
-                  disabled={!selectedDrug || !selectedPatient || quantity < 1 || addingDispensing}
+                  disabled={!selectedDrug || quantity < 1 || addingDispensing}
                   className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {addingDispensing ? (
@@ -1202,8 +1424,46 @@ export default function DrugDispensing() {
                 if (confirmed) {
                   try {
                     setLoading(true);
-                    const { success, error } = await DrugDispensingService.clearAllDispensingHistory();
-                    
+
+                    // Clear cache BEFORE clearing data to prevent stale cache
+                    console.log('🗑️ Clearing cache before delete operation...');
+                    setCachedDispensingHistory(null);
+                    setLastFetchParams('');
+                    setCachedDrugs(null);
+                    setCachedPatients(null);
+
+                    // Use mode-aware clear operation
+                    console.log('🗑️ Clearing dispensing history for mode:', { activeMode, organizationId });
+                    let success = false;
+                    let error = null;
+
+                    if (activeMode === 'organization' && organizationId) {
+                      // For organization mode, we need to clear organization_drug_usage_history
+                      const { data: { user } } = await supabase.auth.getUser();
+                      if (user) {
+                        console.log('🗑️ Clearing organization dispensing history for org:', organizationId);
+                        const { error: clearError, count } = await supabase
+                          .from('organization_drug_usage_history')
+                          .delete()
+                          .eq('organization_id', organizationId);
+
+                        console.log('📊 Organization clear result:', { clearError, count });
+
+                        if (clearError) {
+                          error = clearError.message;
+                        } else {
+                          success = true;
+                        }
+                      } else {
+                        error = 'User not authenticated';
+                      }
+                    } else {
+                      // For individual mode, use the existing service
+                      const result = await DrugDispensingService.clearAllDispensingHistory();
+                      success = result.success;
+                      error = result.error;
+                    }
+
                     if (success) {
                       // Clear local state
                       setDispensingHistory([]);
@@ -1214,10 +1474,11 @@ export default function DrugDispensing() {
                       setDateFrom('');
                       setDateTo('');
                       setSelectedPeriod('month');
-                      
-                      // Refresh data to show empty state
+
+                      // Force refresh data to show empty state (bypass cache)
+                      console.log('🔄 Force refreshing data after clear...');
                       await fetchData();
-                      
+
                       alert('✅ All dispensing history has been cleared successfully.');
                     } else {
                       setError(error || 'Failed to clear dispensing history');
@@ -1298,7 +1559,7 @@ export default function DrugDispensing() {
                             {record.patient_name || 'Unknown Patient'}
                           </span>
                           {deletedItems[record.id]?.patientDeleted && (
-                            <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">
+                            <span className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium bg-red-100 text-red-800 rounded-full">
                               Patient Deleted
                             </span>
                           )}
@@ -1310,7 +1571,7 @@ export default function DrugDispensing() {
                             {record.primary_diagnosis || 'No diagnosis'}
                           </span>
                           {deletedItems[record.id]?.diagnosisDeleted && (
-                            <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">
+                            <span className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium bg-red-100 text-red-800 rounded-full">
                               Diagnosis Deleted
                             </span>
                           )}

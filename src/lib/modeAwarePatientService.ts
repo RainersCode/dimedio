@@ -64,8 +64,10 @@ export class ModeAwarePatientService {
 
     try {
       if (activeMode === 'organization' && organizationId) {
-        // Get organization patients with diagnosis information
+        // Get organization patients with diagnosis information using optimized queries
         console.log('Fetching organization patients for organizationId:', organizationId);
+
+        // First, get all patients
         const { data: patientsData, error: patientsError } = await supabase
           .from('organization_patients')
           .select(`
@@ -83,33 +85,53 @@ export class ModeAwarePatientService {
           return { data: null, error: patientsError.message, mode: 'organization' };
         }
 
-        // Enrich with diagnosis information
-        const enrichedPatients = await Promise.all(
-          (patientsData || []).map(async (patient) => {
-            // Get diagnosis count and last diagnosis
-            const { data: diagnosisData, error: diagnosisError } = await supabase
-              .from('organization_diagnoses')
-              .select('id, primary_diagnosis, severity_level, created_at')
-              .eq('organization_id', organizationId)
-              .or(`patient_id.eq.${patient.patient_id},patient_name.eq.${patient.patient_name}`)
-              .order('created_at', { ascending: false });
+        if (!patientsData || patientsData.length === 0) {
+          return { data: [], error: null, mode: 'organization' };
+        }
 
-            const diagnosis_count = diagnosisData?.length || 0;
-            const lastDiagnosis = diagnosisData?.[0];
+        // Bulk fetch all diagnosis data for all patients in a single query
+        const patientIds = patientsData.map(p => p.patient_id).filter(Boolean);
+        const patientNames = patientsData.map(p => p.patient_name).filter(Boolean);
 
-            return {
-              ...patient,
-              diagnosis_count,
-              last_diagnosis: lastDiagnosis?.primary_diagnosis || 'No diagnosis',
-              last_diagnosis_severity: lastDiagnosis?.severity_level || 'unknown',
-              last_visit_date: lastDiagnosis?.created_at || patient.created_at
-            };
-          })
-        );
+        const diagnosisFilters = [];
+        patientIds.forEach(id => diagnosisFilters.push(`patient_id.eq.${id}`));
+        patientNames.forEach(name => diagnosisFilters.push(`patient_name.eq.${name}`));
+
+        const { data: allDiagnoses } = await supabase
+          .from('organization_diagnoses')
+          .select('patient_id, patient_name, primary_diagnosis, severity_level, created_at')
+          .eq('organization_id', organizationId)
+          .or(diagnosisFilters.join(','))
+          .order('created_at', { ascending: false });
+
+        // Group diagnoses by patient
+        const diagnosisByPatient = new Map();
+        (allDiagnoses || []).forEach(diagnosis => {
+          const key = diagnosis.patient_id || diagnosis.patient_name;
+          if (!diagnosisByPatient.has(key)) {
+            diagnosisByPatient.set(key, []);
+          }
+          diagnosisByPatient.get(key).push(diagnosis);
+        });
+
+        // Enrich patients with their diagnosis data
+        const enrichedPatients = patientsData.map(patient => {
+          const patientKey = patient.patient_id || patient.patient_name;
+          const patientDiagnoses = diagnosisByPatient.get(patientKey) || [];
+          const lastDiagnosis = patientDiagnoses[0];
+
+          return {
+            ...patient,
+            diagnosis_count: patientDiagnoses.length,
+            last_diagnosis: lastDiagnosis?.primary_diagnosis || 'No diagnosis',
+            last_diagnosis_severity: lastDiagnosis?.severity_level || 'unknown',
+            last_visit_date: lastDiagnosis?.created_at || patient.created_at
+          };
+        });
 
         return { data: enrichedPatients, error: null, mode: 'organization' };
       } else {
-        // Get individual patients with diagnosis information
+        // Get individual patients with diagnosis information using optimized queries
         console.log('Fetching individual patients for user_id:', user.id);
         const { data: patientsData, error: patientsError } = await supabase
           .from('patient_profiles')
@@ -124,29 +146,49 @@ export class ModeAwarePatientService {
           return { data: null, error: patientsError.message, mode: 'individual' };
         }
 
-        // Enrich with diagnosis information
-        const enrichedPatients = await Promise.all(
-          (patientsData || []).map(async (patient) => {
-            // Get diagnosis count and last diagnosis
-            const { data: diagnosisData, error: diagnosisError } = await supabase
-              .from('diagnoses')
-              .select('id, primary_diagnosis, severity_level, created_at')
-              .eq('user_id', user.id)
-              .or(`patient_id.eq.${patient.patient_id},patient_name.eq.${patient.patient_name}`)
-              .order('created_at', { ascending: false });
+        if (!patientsData || patientsData.length === 0) {
+          return { data: [], error: null, mode: 'individual' };
+        }
 
-            const diagnosis_count = diagnosisData?.length || 0;
-            const lastDiagnosis = diagnosisData?.[0];
+        // Bulk fetch all diagnosis data for all patients in a single query
+        const patientIds = patientsData.map(p => p.patient_id).filter(Boolean);
+        const patientNames = patientsData.map(p => p.patient_name).filter(Boolean);
 
-            return {
-              ...patient,
-              diagnosis_count,
-              last_diagnosis: lastDiagnosis?.primary_diagnosis || 'No diagnosis',
-              last_diagnosis_severity: lastDiagnosis?.severity_level || 'unknown',
-              last_visit_date: lastDiagnosis?.created_at || patient.created_at
-            };
-          })
-        );
+        const diagnosisFilters = [];
+        patientIds.forEach(id => diagnosisFilters.push(`patient_id.eq.${id}`));
+        patientNames.forEach(name => diagnosisFilters.push(`patient_name.eq.${name}`));
+
+        const { data: allDiagnoses } = await supabase
+          .from('diagnoses')
+          .select('patient_id, patient_name, primary_diagnosis, severity_level, created_at')
+          .eq('user_id', user.id)
+          .or(diagnosisFilters.join(','))
+          .order('created_at', { ascending: false });
+
+        // Group diagnoses by patient
+        const diagnosisByPatient = new Map();
+        (allDiagnoses || []).forEach(diagnosis => {
+          const key = diagnosis.patient_id || diagnosis.patient_name;
+          if (!diagnosisByPatient.has(key)) {
+            diagnosisByPatient.set(key, []);
+          }
+          diagnosisByPatient.get(key).push(diagnosis);
+        });
+
+        // Enrich patients with their diagnosis data
+        const enrichedPatients = patientsData.map(patient => {
+          const patientKey = patient.patient_id || patient.patient_name;
+          const patientDiagnoses = diagnosisByPatient.get(patientKey) || [];
+          const lastDiagnosis = patientDiagnoses[0];
+
+          return {
+            ...patient,
+            diagnosis_count: patientDiagnoses.length,
+            last_diagnosis: lastDiagnosis?.primary_diagnosis || 'No diagnosis',
+            last_diagnosis_severity: lastDiagnosis?.severity_level || 'unknown',
+            last_visit_date: lastDiagnosis?.created_at || patient.created_at
+          };
+        });
 
         return { data: enrichedPatients, error: null, mode: 'individual' };
       }

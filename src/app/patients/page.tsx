@@ -27,21 +27,27 @@ export default function Patients() {
 
   useEffect(() => {
     if (user) {
-      fetchPatients();
-      checkUndispensedMedications();
+      // Run both operations in parallel for faster loading
+      Promise.all([
+        fetchPatients(),
+        checkUndispensedMedications()
+      ]);
     }
   }, [user, activeMode, organizationId]);
 
   const checkUndispensedMedications = useCallback(async () => {
     try {
-      const { patients: undispensedPatients } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications();
+      const { patients: undispensedPatients } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications(
+        activeMode,
+        organizationId
+      );
       const patientIdsWithUndispensed = new Set(undispensedPatients.map(p => p.patientId));
       setPatientsWithUndispensedMeds(patientIdsWithUndispensed);
     } catch (error) {
       console.error('Error checking undispensed medications:', error);
       setPatientsWithUndispensedMeds(new Set());
     }
-  }, []);
+  }, [activeMode, organizationId]);
 
   // Listen for refresh events
   useUndispensedMedicationsRefresh(checkUndispensedMedications);
@@ -60,8 +66,7 @@ export default function Patients() {
       } else if (data) {
         setPatients(data);
         console.log('Patients set to state:', data);
-        // Re-check undispensed medications after fetching patients
-        await checkUndispensedMedications();
+        // No need to re-check undispensed medications here as it runs in parallel
       }
     } catch (err) {
       console.error('Error fetching patients:', err);

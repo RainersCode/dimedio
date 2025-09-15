@@ -27,22 +27,45 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ? mapSupabaseUser(session.user) : null);
-      setLoading(false);
-    });
+    const getInitialSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (mounted) {
+          setUser(session?.user ? mapSupabaseUser(session.user) : null);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Error getting initial session:', error);
+        if (mounted) {
+          setUser(null);
+          setLoading(false);
+        }
+      }
+    };
+
+    getInitialSession();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        setUser(session?.user ? mapSupabaseUser(session.user) : null);
-        setLoading(false);
+        if (mounted) {
+          setUser(session?.user ? mapSupabaseUser(session.user) : null);
+          // Only set loading to false if we're not in the initial loading state
+          if (!loading) {
+            setLoading(false);
+          }
+        }
       }
     );
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [loading]);
 
   const mapSupabaseUser = (supabaseUser: SupabaseUser): User => ({
     id: supabaseUser.id,

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
+import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 import { AdminService } from '@/lib/admin';
 import { UndispensedMedicationsService } from '@/lib/undispensedMedicationsService';
 import { useUndispensedMedicationsRefresh } from '@/hooks/useUndispensedMedicationsRefresh';
@@ -12,7 +13,8 @@ import type { UserRole } from '@/types/database';
 
 export default function Navigation() {
   const { t } = useLanguage();
-  const { user, signOut } = useSupabaseAuth();
+  const { user, loading: authLoading, signOut } = useSupabaseAuth();
+  const { activeMode, organizationId, loading: modeLoading } = useMultiOrgUserMode();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup'>('signin');
   const [userRole, setUserRole] = useState<UserRole>('user');
@@ -48,7 +50,10 @@ export default function Navigation() {
   const checkUndispensedMeds = useCallback(async () => {
     if (user) {
       try {
-        const { hasAnyUndispensed } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications();
+        const { hasAnyUndispensed } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications(
+          activeMode,
+          organizationId
+        );
         setHasUndispensedMeds(hasAnyUndispensed);
       } catch (error) {
         console.error('Error checking undispensed medications:', error);
@@ -57,7 +62,7 @@ export default function Navigation() {
     } else {
       setHasUndispensedMeds(false);
     }
-  }, [user]);
+  }, [user, activeMode, organizationId]);
 
   useEffect(() => {
     checkUndispensedMeds();
@@ -250,8 +255,13 @@ export default function Navigation() {
 
           <div className="hidden md:flex items-center space-x-4">
             <LanguageSwitcher />
-            
-            {user ? (
+
+            {authLoading || modeLoading ? (
+              <div className="flex items-center space-x-2">
+                <div className="w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-sm text-slate-600">Loading...</span>
+              </div>
+            ) : user ? (
               <div className="flex items-center space-x-4">
                 <div className="text-sm">
                   <div className="text-slate-600">

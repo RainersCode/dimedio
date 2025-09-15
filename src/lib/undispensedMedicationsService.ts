@@ -1,5 +1,7 @@
 import { PatientService } from './patientService';
+import { ModeAwarePatientService } from './modeAwarePatientService';
 import { DatabaseService } from './database';
+import type { UserWorkingMode } from '@/contexts/MultiOrgUserModeContext';
 
 export interface UndispensedMedicationInfo {
   patientId: string;
@@ -15,14 +17,19 @@ export interface UndispensedMedicationInfo {
 
 export class UndispensedMedicationsService {
   
-  static async getPatientsWithUndispensedMedications(): Promise<{
+  static async getPatientsWithUndispensedMedications(
+    activeMode?: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{
     patients: UndispensedMedicationInfo[];
     totalUndispensedCount: number;
     hasAnyUndispensed: boolean;
   }> {
     try {
-      // Get all patients with their diagnoses
-      const { data: patients, error } = await PatientService.getPatients();
+      // Get all patients with their diagnoses using mode-aware service
+      const { data: patients, error } = activeMode
+        ? await ModeAwarePatientService.getPatients(activeMode, organizationId)
+        : await PatientService.getPatients();
       if (error || !patients) {
         return { patients: [], totalUndispensedCount: 0, hasAnyUndispensed: false };
       }

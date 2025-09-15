@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { DrugDispensingService } from './drugDispensingService';
+import { DrugDispensingService, DispensingStats } from './drugDispensingService';
 import { OrganizationInventoryUsageService } from './organizationInventoryUsageService';
 import { InventoryUsageService } from './inventoryUsageService';
 import type { UserWorkingMode } from '@/contexts/MultiOrgUserModeContext';
@@ -17,7 +17,7 @@ export class ModeAwareDrugDispensingService {
   // Record drug dispensing based on active mode
   static async recordDispensing(
     dispensingRecords: ModeAwareDispensingRecord[],
-    diagnosisId: string,
+    diagnosisId: string | null,
     patientInfo: {
       patient_name?: string;
       patient_age?: number;
@@ -83,7 +83,7 @@ export class ModeAwareDrugDispensingService {
   // Record organization drug dispensing
   private static async recordOrganizationDispensing(
     dispensingRecords: ModeAwareDispensingRecord[],
-    diagnosisId: string,
+    diagnosisId: string | null,
     patientInfo: {
       patient_name?: string;
       patient_age?: number;
@@ -102,8 +102,8 @@ export class ModeAwareDrugDispensingService {
       skipDuplicateCheck
     });
 
-    // Check for duplicates if not skipping
-    if (!skipDuplicateCheck) {
+    // Check for duplicates if not skipping and we have a diagnosis_id
+    if (!skipDuplicateCheck && diagnosisId) {
       const { data: existingRecords } = await supabase
         .from('organization_drug_usage_history')
         .select('id')
@@ -207,16 +207,20 @@ export class ModeAwareDrugDispensingService {
 
     try {
       if (activeMode === 'organization' && organizationId) {
-        // Get organization dispensing history
+        console.log('🔍 Fetching organization dispensing history for org:', organizationId);
+
+        // Get organization dispensing history with left join (to include records even without inventory match)
         const { data, error } = await supabase
           .from('organization_drug_usage_history')
           .select(`
             *,
-            organization_drug_inventory!inner(drug_name)
+            organization_drug_inventory(drug_name)
           `)
           .eq('organization_id', organizationId)
           .order('dispensed_date', { ascending: false })
           .limit(limit);
+
+        console.log('📊 Organization query result:', { error, dataCount: data?.length });
 
         if (error) {
           console.error('❌ Error fetching organization dispensing history:', error);
@@ -235,16 +239,20 @@ export class ModeAwareDrugDispensingService {
         console.log('📊 Enriched organization dispensing data:', enrichedData?.length, 'records');
         return { data: enrichedData || [], error: null };
       } else {
-        // Get individual dispensing history (existing logic)
+        console.log('🔍 Fetching individual dispensing history for user:', user.id);
+
+        // Get individual dispensing history with left join (to include records even without inventory match)
         const { data, error } = await supabase
           .from('drug_usage_history')
           .select(`
             *,
-            user_drug_inventory!inner(drug_name)
+            user_drug_inventory(drug_name)
           `)
           .eq('user_id', user.id)
           .order('dispensed_date', { ascending: false })
           .limit(limit);
+
+        console.log('📊 Individual query result:', { error, dataCount: data?.length });
 
         if (error) {
           return { data: null, error: error.message };
@@ -500,6 +508,217 @@ export class ModeAwareDrugDispensingService {
         error: error instanceof Error ? error.message : 'Failed to delete dispensing record',
         mode: 'individual'
       };
+    }
+  }
+
+  // Get dispensing statistics for a specific time period (mode-aware)
+  static async getDispensingSummary(
+    activeMode: UserWorkingMode,
+    organizationId: string | null,
+    period: 'week' | 'month' | 'quarter' | 'year' = 'month'
+  ): Promise<{ data: DispensingStats | null; error: string | null }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated' };
+    }
+
+    // Calculate date range based on period
+    const now = new Date();
+    let dateFrom: Date;
+
+    switch (period) {
+      case 'week':
+        dateFrom = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case 'month':
+        dateFrom = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+        break;
+      case 'quarter':
+        dateFrom = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+        break;
+      case 'year':
+        dateFrom = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+        break;
+    }
+
+    return this.getDispensingStats(
+      activeMode,
+      organizationId,
+      dateFrom.toISOString(),
+      now.toISOString()
+    );
+  }
+
+  // Get dispensing statistics (mode-aware)
+  static async getDispensingStats(
+    activeMode: UserWorkingMode,
+    organizationId: string | null,
+    dateFrom?: string,
+    dateTo?: string
+  ): Promise<{ data: DispensingStats | null; error: string | null }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated' };
+    }
+
+    try {
+      let baseQuery;
+
+      if (activeMode === 'organization' && organizationId) {
+        // Organization mode - query organization_drug_usage_history
+        baseQuery = supabase
+          .from('organization_drug_usage_history')
+          .select(`
+            *,
+            organization_drug_inventory!inner(
+              drug_name,
+              unit_price
+            ),
+            organization_diagnoses(
+              patient_name,
+              primary_diagnosis
+            )
+          `)
+          .eq('organization_id', organizationId);
+      } else {
+        // Individual mode - query drug_usage_history
+        baseQuery = supabase
+          .from('drug_usage_history')
+          .select(`
+            *,
+            user_drug_inventory!inner(
+              drug_name,
+              unit_price
+            ),
+            diagnoses(
+              patient_name,
+              primary_diagnosis
+            )
+          `)
+          .eq('user_id', user.id);
+      }
+
+      if (dateFrom) {
+        baseQuery = baseQuery.gte('dispensed_date', dateFrom);
+      }
+      if (dateTo) {
+        baseQuery = baseQuery.lte('dispensed_date', dateTo);
+      }
+
+      const { data: history, error: historyError } = await baseQuery;
+
+      if (historyError) {
+        throw historyError;
+      }
+
+      if (!history || history.length === 0) {
+        return {
+          data: {
+            total_dispensed: 0,
+            unique_drugs: 0,
+            unique_patients: 0,
+            total_value: 0,
+            top_drugs: [],
+            recent_activity: []
+          },
+          error: null
+        };
+      }
+
+      // Calculate statistics
+      const totalDispensed = history.reduce((sum, record) => sum + (record.quantity_dispensed || 0), 0);
+
+      // Get unique drugs
+      const uniqueDrugs = new Set();
+      history.forEach(record => {
+        const drugName = activeMode === 'organization'
+          ? record.organization_drug_inventory?.drug_name
+          : record.user_drug_inventory?.drug_name;
+        if (drugName) uniqueDrugs.add(drugName);
+      });
+
+      // Get unique patients
+      const uniquePatients = new Set();
+      history.forEach(record => {
+        const patientName = activeMode === 'organization'
+          ? record.organization_diagnoses?.patient_name
+          : record.diagnoses?.patient_name;
+        if (patientName && patientName !== 'No patient specified') {
+          uniquePatients.add(patientName);
+        }
+      });
+
+      // Calculate total value
+      const totalValue = history.reduce((sum, record) => {
+        const unitPrice = activeMode === 'organization'
+          ? record.organization_drug_inventory?.unit_price
+          : record.user_drug_inventory?.unit_price;
+        const quantity = record.quantity_dispensed || 0;
+        return sum + ((unitPrice || 0) * quantity);
+      }, 0);
+
+      // Calculate top drugs
+      const drugStats = new Map();
+      history.forEach(record => {
+        const drugName = activeMode === 'organization'
+          ? record.organization_drug_inventory?.drug_name
+          : record.user_drug_inventory?.drug_name;
+
+        if (drugName) {
+          if (!drugStats.has(drugName)) {
+            drugStats.set(drugName, { total_quantity: 0, total_dispensings: 0 });
+          }
+          const stats = drugStats.get(drugName);
+          stats.total_quantity += record.quantity_dispensed || 0;
+          stats.total_dispensings += 1;
+        }
+      });
+
+      const topDrugs = Array.from(drugStats.entries())
+        .map(([drug_name, stats]) => ({
+          drug_name,
+          total_quantity: stats.total_quantity,
+          total_dispensings: stats.total_dispensings
+        }))
+        .sort((a, b) => b.total_quantity - a.total_quantity)
+        .slice(0, 5);
+
+      // Recent activity (last 5 records)
+      const recentActivity = history
+        .sort((a, b) => new Date(b.dispensed_date).getTime() - new Date(a.dispensed_date).getTime())
+        .slice(0, 5)
+        .map(record => ({
+          id: record.id,
+          drug_name: activeMode === 'organization'
+            ? record.organization_drug_inventory?.drug_name
+            : record.user_drug_inventory?.drug_name,
+          patient_name: activeMode === 'organization'
+            ? record.organization_diagnoses?.patient_name
+            : record.diagnoses?.patient_name,
+          quantity_dispensed: record.quantity_dispensed,
+          dispensed_date: record.dispensed_date,
+          primary_diagnosis: activeMode === 'organization'
+            ? record.organization_diagnoses?.primary_diagnosis
+            : record.diagnoses?.primary_diagnosis
+        }));
+
+      return {
+        data: {
+          total_dispensed: totalDispensed,
+          unique_drugs: uniqueDrugs.size,
+          unique_patients: uniquePatients.size,
+          total_value: totalValue,
+          top_drugs: topDrugs,
+          recent_activity: recentActivity
+        },
+        error: null
+      };
+
+    } catch (error) {
+      console.error('Error calculating dispensing stats:', error);
+      return { data: null, error: error.message };
     }
   }
 }
