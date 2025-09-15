@@ -1,17 +1,21 @@
 'use client';
 
 import Navigation from '@/components/layout/Navigation';
-import { PatientService } from '@/lib/patientService';
+import { ModeAwarePatientService } from '@/lib/modeAwarePatientService';
 import { UndispensedMedicationsService } from '@/lib/undispensedMedicationsService';
 import { useUndispensedMedicationsRefresh } from '@/hooks/useUndispensedMedicationsRefresh';
 import { PatientProfile } from '@/types/database';
+import type { OrganizationPatient } from '@/types/organization';
 import { useState, useEffect, useCallback } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
+import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
+import PatientOrganizationSelector from '@/components/patients/PatientOrganizationSelector';
 import Link from 'next/link';
 
 export default function Patients() {
   const { user } = useSupabaseAuth();
-  const [patients, setPatients] = useState<(PatientProfile & { diagnosis_count: number; last_diagnosis: string; last_diagnosis_severity: string })[]>([]);
+  const { activeMode, organizationId } = useMultiOrgUserMode();
+  const [patients, setPatients] = useState<((PatientProfile | OrganizationPatient) & { diagnosis_count: number; last_diagnosis: string; last_diagnosis_severity: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -19,13 +23,14 @@ export default function Patients() {
   const [deletingPatient, setDeletingPatient] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [patientsWithUndispensedMeds, setPatientsWithUndispensedMeds] = useState<Set<string>>(new Set());
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
       fetchPatients();
       checkUndispensedMedications();
     }
-  }, [user]);
+  }, [user, activeMode, organizationId]);
 
   const checkUndispensedMedications = useCallback(async () => {
     try {
@@ -45,16 +50,21 @@ export default function Patients() {
     try {
       setLoading(true);
       setError('');
-      const { data, error: fetchError } = await PatientService.getPatients();
-      
+      console.log('Fetching patients with:', { activeMode, organizationId });
+      const { data, error: fetchError, mode } = await ModeAwarePatientService.getPatients(activeMode, organizationId);
+
+      console.log('Patients fetch result:', { data, error: fetchError, mode });
+
       if (fetchError) {
         setError(fetchError);
       } else if (data) {
         setPatients(data);
+        console.log('Patients set to state:', data);
         // Re-check undispensed medications after fetching patients
         await checkUndispensedMedications();
       }
     } catch (err) {
+      console.error('Error fetching patients:', err);
       setError('Failed to fetch patients');
     } finally {
       setLoading(false);
@@ -64,15 +74,9 @@ export default function Patients() {
   const handleDeletePatient = async (patientId: string) => {
     try {
       setDeletingPatient(patientId);
-      const { error: deleteError } = await PatientService.deletePatient(patientId);
-      
-      if (deleteError) {
-        setError('Failed to delete patient: ' + deleteError);
-      } else {
-        // Remove the patient from local state
-        setPatients(prev => prev.filter(p => p.id !== patientId));
-        setShowDeleteConfirm(null);
-      }
+      // TODO: Implement mode-aware patient deletion
+      setError('Patient deletion not yet implemented for mode-aware service');
+      setShowDeleteConfirm(null);
     } catch (err) {
       setError('Failed to delete patient');
     } finally {
@@ -130,12 +134,71 @@ export default function Patients() {
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Patient Management</h1>
-            <p className="text-slate-600 mt-2">Manage patient records and diagnosis history</p>
+            <p className="text-slate-600 mt-2">
+              Manage patient records and diagnosis history
+              {activeMode === 'organization' ? `(Organization Mode)` : '(Individual Mode)'}
+            </p>
           </div>
           <button className="px-6 py-3 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors">
             Add New Patient
           </button>
         </div>
+
+        {/* Organization Selector */}
+        <PatientOrganizationSelector
+          onError={setError}
+          onSuccess={(message) => {
+            setError('');
+            setSuccessMessage(message);
+            setTimeout(() => setSuccessMessage(null), 3000);
+          }}
+        />
+
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex">
+              <svg className="w-5 h-5 text-red-400 mt-0.5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              <div>
+                <h3 className="text-sm font-medium text-red-800">Error</h3>
+                <p className="text-sm text-red-700 mt-1">{error}</p>
+              </div>
+              <button
+                onClick={() => setError('')}
+                className="ml-auto text-red-400 hover:text-red-600"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Success Alert */}
+        {successMessage && (
+          <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex">
+              <svg className="w-5 h-5 text-green-400 mt-0.5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <h3 className="text-sm font-medium text-green-800">Success</h3>
+                <p className="text-sm text-green-700 mt-1">{successMessage}</p>
+              </div>
+              <button
+                onClick={() => setSuccessMessage(null)}
+                className="ml-auto text-green-400 hover:text-green-600"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <div className="p-6 border-b border-slate-200">

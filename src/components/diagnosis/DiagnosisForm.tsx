@@ -752,9 +752,39 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         const updatedCredits = await CreditsService.canUseDiagnosis();
         setCreditInfo(updatedCredits);
       }
+
+      // Clean form data - convert empty strings to null for date fields and numeric fields
+      const cleanedFormData = {
+        ...formData,
+        date_of_birth: formData.date_of_birth?.trim() || null,
+        patient_age: formData.patient_age || null,
+        blood_pressure_systolic: formData.blood_pressure_systolic || null,
+        blood_pressure_diastolic: formData.blood_pressure_diastolic || null,
+        heart_rate: formData.heart_rate || null,
+        temperature: formData.temperature || null,
+        respiratory_rate: formData.respiratory_rate || null,
+        oxygen_saturation: formData.oxygen_saturation || null,
+        weight: formData.weight || null,
+        height: formData.height || null,
+        pain_scale: formData.pain_scale || null,
+        // Clean string fields - convert empty strings to null
+        patient_name: formData.patient_name?.trim() || null,
+        patient_surname: formData.patient_surname?.trim() || null,
+        patient_id: formData.patient_id?.trim() || null,
+        allergies: formData.allergies?.trim() || null,
+        current_medications: formData.current_medications?.trim() || null,
+        chronic_conditions: formData.chronic_conditions?.trim() || null,
+        previous_surgeries: formData.previous_surgeries?.trim() || null,
+        previous_injuries: formData.previous_injuries?.trim() || null,
+        complaint_duration: formData.complaint_duration?.trim() || null,
+        associated_symptoms: formData.associated_symptoms?.trim() || null,
+        symptoms: formData.symptoms?.trim() || null,
+        symptom_onset: formData.symptom_onset?.trim() || null
+      };
+
       // 1. Create diagnosis in database using mode-aware service
       const { data: diagnosis, error: dbError } = await ModeAwareDiagnosisService.createDiagnosis(
-        formData,
+        cleanedFormData,
         activeMode,
         organizationId
       );
@@ -764,7 +794,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       }
 
       // 2. Send to n8n for AI analysis
-      const { data: n8nResponse, error: n8nError } = await N8nService.sendDiagnosisRequest(formData);
+      const { data: n8nResponse, error: n8nError } = await N8nService.sendDiagnosisRequest(cleanedFormData);
       
       if (n8nError) {
         // If n8n fails, we still have the diagnosis saved, just without AI results

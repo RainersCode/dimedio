@@ -1,14 +1,16 @@
 'use client';
 
 import Navigation from '@/components/layout/Navigation';
-import { PatientService } from '@/lib/patientService';
-import { DrugDispensingService } from '@/lib/drugDispensingService';
-import { DrugInventoryService } from '@/lib/drugInventory';
-import { DatabaseService } from '@/lib/database';
+import { ModeAwarePatientService } from '@/lib/modeAwarePatientService';
+import { ModeAwareDrugDispensingService } from '@/lib/modeAwareDrugDispensingService';
+import { ModeAwareDrugInventoryService } from '@/lib/modeAwareDrugInventoryService';
+import { ModeAwareDiagnosisService } from '@/lib/modeAwareDiagnosisService';
 import { triggerUndispensedMedicationsRefresh } from '@/hooks/useUndispensedMedicationsRefresh';
 import { PatientProfile, Diagnosis, UserDrugInventory } from '@/types/database';
+import type { OrganizationPatient, OrganizationDiagnosis, OrganizationDrugInventory } from '@/types/organization';
 import { useState, useEffect } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
+import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { DiagnosisExportDropdown } from '@/components/diagnosis/DiagnosisExportButtons';
@@ -20,11 +22,12 @@ interface PatientDetailsProps {
 
 export default function PatientDetails({ params }: PatientDetailsProps) {
   const { user } = useSupabaseAuth();
+  const { activeMode, organizationId } = useMultiOrgUserMode();
   const router = useRouter();
-  const [patient, setPatient] = useState<(PatientProfile & { diagnoses: Diagnosis[] }) | null>(null);
+  const [patient, setPatient] = useState<((PatientProfile | OrganizationPatient) & { diagnoses: (Diagnosis | OrganizationDiagnosis)[] }) | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [userDrugInventory, setUserDrugInventory] = useState<UserDrugInventory[]>([]);
+  const [drugInventory, setDrugInventory] = useState<(UserDrugInventory | OrganizationDrugInventory)[]>([]);
   const [recordingDispensing, setRecordingDispensing] = useState<{[key: string]: boolean}>({});
   const [dispensingRecorded, setDispensingRecorded] = useState<{[key: string]: boolean}>({});
   const [deletingDiagnosis, setDeletingDiagnosis] = useState<string | null>(null);
@@ -39,7 +42,7 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
     if (user && params.id) {
       fetchPatient();
     }
-  }, [user, params.id]);
+  }, [user, params.id, activeMode, organizationId]);
 
   // Check localStorage for recorded dispensings when patient data loads
   useEffect(() => {
@@ -78,27 +81,57 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
     try {
       setLoading(true);
       setError('');
-      
-      // Fetch patient data
-      const { data, error: fetchError } = await PatientService.getPatientById(params.id);
-      
-      if (fetchError) {
-        setError(fetchError);
-      } else if (data) {
-        setPatient(data);
+
+      console.log('Fetching patient with mode:', { activeMode, organizationId, patientId: params.id });
+
+      // Fetch all patients to find the specific one by ID (mode-aware)
+      const { data: allPatients, error: patientsError } = await ModeAwarePatientService.getPatients(activeMode, organizationId);
+
+      if (patientsError) {
+        setError(patientsError);
+        return;
       }
 
-      // Also fetch user's drug inventory for dispensing
+      // Find the specific patient by ID
+      const targetPatient = allPatients?.find(p => p.id === params.id);
+      if (!targetPatient) {
+        setError('Patient not found or not accessible in current mode');
+        return;
+      }
+
+      // Fetch diagnoses for this patient using mode-aware service
+      const { data: diagnoses, error: diagnosisError } = await ModeAwareDiagnosisService.getPatientDiagnoses(
+        targetPatient.patient_id || targetPatient.id,
+        activeMode,
+        organizationId
+      );
+
+      if (diagnosisError) {
+        console.warn('Could not fetch patient diagnoses:', diagnosisError);
+      }
+
+      // Combine patient with diagnoses
+      const patientWithDiagnoses = {
+        ...targetPatient,
+        diagnoses: diagnoses || []
+      };
+
+      setPatient(patientWithDiagnoses);
+
+      // Fetch drug inventory for dispensing (mode-aware)
       try {
-        const { data: inventory } = await DrugInventoryService.getUserDrugInventory();
-        if (inventory) {
-          setUserDrugInventory(inventory);
+        const { data: inventory, error: invError } = await ModeAwareDrugInventoryService.getDrugInventory(activeMode, organizationId);
+        if (invError) {
+          console.warn('Could not fetch drug inventory:', invError);
+        } else if (inventory) {
+          setDrugInventory(inventory);
         }
       } catch (invError) {
         console.warn('Could not fetch drug inventory:', invError);
       }
 
     } catch (err) {
+      console.error('Error fetching patient details:', err);
       setError('Failed to fetch patient details');
     } finally {
       setLoading(false);
@@ -135,7 +168,7 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
       setRecordingDispensing(prev => ({ ...prev, [diagnosis.id]: true }));
       console.log('Recording drug dispensing for diagnosis:', diagnosis.id);
       console.log('Inventory drugs in diagnosis:', diagnosis.inventory_drugs);
-      console.log('Available user inventory:', userDrugInventory);
+      console.log('Available user inventory:', drugInventory);
 
       const patientInfo = {
         patient_name: patient?.patient_name,
@@ -150,8 +183,8 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
       for (const drug of diagnosis.inventory_drugs) {
         console.log('Processing drug:', drug);
         
-        // Try to find the drug ID from userDrugInventory by matching drug name
-        const matchingInventoryDrug = userDrugInventory.find(invDrug => {
+        // Try to find the drug ID from drugInventory by matching drug name
+        const matchingInventoryDrug = drugInventory.find(invDrug => {
           // Normalize names for comparison (lowercase, remove extra spaces)
           const normalizeName = (name: string) => name?.toLowerCase().replace(/\s+/g, ' ').trim() || '';
           const normalizeForMatching = (name: string) => {
@@ -205,10 +238,12 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
       console.log('Dispensings to record:', dispensings);
 
       if (dispensings.length > 0) {
-        const { error } = await DrugDispensingService.recordMultipleDispensings(
+        const { error } = await ModeAwareDrugDispensingService.recordDispensing(
           dispensings,
           diagnosis.id,
-          patientInfo
+          patientInfo,
+          activeMode,
+          organizationId
         );
 
         if (error) {
@@ -254,8 +289,8 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
         primary_diagnosis: diagnosis.primary_diagnosis
       };
 
-      // Try to find the drug ID from userDrugInventory by matching drug name
-      const matchingInventoryDrug = userDrugInventory.find(invDrug => {
+      // Try to find the drug ID from drugInventory by matching drug name
+      const matchingInventoryDrug = drugInventory.find(invDrug => {
         const normalizeName = (name: string) => name?.toLowerCase().replace(/\s+/g, ' ').trim() || '';
         const normalizeForMatching = (name: string) => {
           return normalizeName(name)
@@ -287,10 +322,12 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
         notes: `Individual dispensing for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}`
       };
 
-      const { error } = await DrugDispensingService.recordMultipleDispensings(
+      const { error } = await ModeAwareDrugDispensingService.recordDispensing(
         [dispensing],
         diagnosis.id, // Keep diagnosis_id for proper tracking
         patientInfo,
+        activeMode,
+        organizationId,
         true // Skip duplicate check for individual dispensing
       );
 
@@ -368,7 +405,7 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
   const handleDeleteDiagnosis = async (diagnosisId: string) => {
     try {
       setDeletingDiagnosis(diagnosisId);
-      const { error: deleteError } = await DatabaseService.deleteDiagnosis(diagnosisId);
+      const { error: deleteError } = await ModeAwareDiagnosisService.deleteDiagnosis(diagnosisId, activeMode, organizationId);
       
       if (deleteError) {
         setError('Failed to delete diagnosis: ' + deleteError);
@@ -407,8 +444,8 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
       setDeletingAllDiagnoses(true);
       
       // Delete all diagnoses
-      const deletePromises = patient.diagnoses.map(diagnosis => 
-        DatabaseService.deleteDiagnosis(diagnosis.id)
+      const deletePromises = patient.diagnoses.map(diagnosis =>
+        ModeAwareDiagnosisService.deleteDiagnosis(diagnosis.id, activeMode, organizationId)
       );
       
       const results = await Promise.all(deletePromises);
