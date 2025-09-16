@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -34,11 +34,17 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
 
+  // Loading guards to prevent duplicate API calls
+  const fetchingRef = useRef(false);
+
   // Load dashboard data
   const loadDashboardData = async () => {
-    if (modeLoading) return;
+    if (modeLoading || fetchingRef.current) return;
+
+    console.log('Dashboard loading data with:', { activeMode, organizationId, membershipStatus });
 
     try {
+      fetchingRef.current = true;
       setLoading(true);
       setError(null);
 
@@ -48,25 +54,39 @@ export default function DashboardPage() {
       ]);
 
       if (statsResult.error) {
+        console.error('Dashboard stats error:', statsResult.error);
         setError(statsResult.error);
       } else {
         setStats(statsResult.data);
       }
 
-      if (!activitiesResult.error) {
+      if (activitiesResult.error) {
+        console.error('Dashboard activities error:', activitiesResult.error);
+      } else {
         setActivities(activitiesResult.data || []);
       }
     } catch (err) {
       console.error('Error loading dashboard data:', err);
       setError('Failed to load dashboard data');
     } finally {
+      fetchingRef.current = false;
       setLoading(false);
     }
   };
 
   // Load data on component mount and when mode changes
   useEffect(() => {
-    loadDashboardData();
+    if (!modeLoading) {
+      // Add a small delay to debounce rapid context changes
+      const timeoutId = setTimeout(() => {
+        // Additional check to ensure we have stable context
+        if (!modeLoading && activeMode !== undefined) {
+          loadDashboardData();
+        }
+      }, 200); // Increased delay for more stability
+
+      return () => clearTimeout(timeoutId);
+    }
   }, [activeMode, organizationId, modeLoading]);
 
   // Handle mode switching with visual feedback

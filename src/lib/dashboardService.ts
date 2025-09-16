@@ -104,97 +104,84 @@ export class DashboardService {
     }
   }
 
-  // Get organization-specific dashboard stats
+  // Get organization-specific dashboard stats using mode-aware services
   private static async getOrganizationStats(organizationId: string, userId: string): Promise<DashboardStats> {
-    // Get organization info
-    const { data: orgData } = await supabase
-      .from('organizations')
-      .select('name')
-      .eq('id', organizationId)
-      .single();
+    try {
+      // Get organization info
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('name')
+        .eq('id', organizationId)
+        .single();
 
-    const { data: memberData } = await supabase
-      .from('organization_members')
-      .select('role')
-      .eq('organization_id', organizationId)
-      .eq('user_id', userId)
-      .single();
-
-    // Parallel queries for all stats
-    const [
-      diagnosesQuery,
-      patientsQuery,
-      drugInventoryQuery,
-      recentDiagnosesQuery,
-      newPatientsQuery
-    ] = await Promise.all([
-      // Total diagnoses
-      supabase
-        .from('organization_diagnoses')
-        .select('id, primary_diagnosis, urgency_level, created_at')
-        .eq('organization_id', organizationId),
-
-      // Total patients
-      supabase
-        .from('organization_patients')
-        .select('id, gender, date_of_birth, created_at')
-        .eq('organization_id', organizationId),
-
-      // Drug inventory
-      supabase
-        .from('organization_drug_inventory')
-        .select('id, quantity, unit_price, expiry_date')
+      const { data: memberData } = await supabase
+        .from('organization_members')
+        .select('role')
         .eq('organization_id', organizationId)
-        .eq('is_active', true),
+        .eq('user_id', userId)
+        .single();
 
-      // Recent diagnoses (last 7 days)
-      supabase
-        .from('organization_diagnoses')
-        .select('id')
-        .eq('organization_id', organizationId)
-        .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
+      // Use mode-aware services instead of direct database queries
+      const [
+        patientsResult,
+        diagnosesResult,
+        inventoryResult
+      ] = await Promise.all([
+        ModeAwarePatientService.getPatients('organization', organizationId),
+        ModeAwareDiagnosisService.getDiagnoses('organization', organizationId),
+        ModeAwareDrugInventoryService.getDrugInventory('organization', organizationId)
+      ]);
 
-      // New patients this month
-      supabase
-        .from('organization_patients')
-        .select('id')
-        .eq('organization_id', organizationId)
-        .gte('created_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString())
-    ]);
+      // Use the data from mode-aware services
+      const patients = patientsResult.data || [];
+      const diagnoses = diagnosesResult.data || [];
+      const drugs = inventoryResult.data || [];
 
-    // Process the data
-    const diagnoses = diagnosesQuery.data || [];
-    const patients = patientsQuery.data || [];
-    const drugs = drugInventoryQuery.data || [];
+      // Calculate time-based metrics
+      const now = new Date();
+      const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const thisMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
-    // Calculate derived metrics
-    const now = new Date();
-    const lowStockDrugs = drugs.filter(drug => drug.quantity < 10).length;
-    const expiredDrugs = drugs.filter(drug => drug.expiry_date && new Date(drug.expiry_date) < now).length;
-    const totalDrugValue = drugs.reduce((sum, drug) => sum + (drug.quantity * (drug.unit_price || 0)), 0);
+      const recentDiagnoses = diagnoses.filter(d => new Date(d.created_at) >= lastWeek).length;
+      const newPatientsThisMonth = patients.filter(p => new Date(p.created_at) >= thisMonth).length;
+      const diagnosesThisMonth = diagnoses.filter(d => new Date(d.created_at) >= thisMonth).length;
 
-    // Gender distribution
-    const genderDistribution = patients.reduce(
-      (acc, patient) => {
-        const gender = patient.gender?.toLowerCase() || 'other';
-        if (gender === 'male') acc.male++;
-        else if (gender === 'female') acc.female++;
-        else acc.other++;
-        return acc;
-      },
-      { male: 0, female: 0, other: 0 }
-    );
+      // Calculate derived metrics
+      const lowStockDrugs = drugs.filter(drug => drug.quantity < 10).length;
+      const expiredDrugs = drugs.filter(drug => drug.expiry_date && new Date(drug.expiry_date) < now).length;
+      const totalDrugValue = drugs.reduce((sum, drug) => {
+        const quantity = Number(drug.quantity) || 0;
+        const unitPrice = Number(drug.unit_price) || 0;
+        const value = quantity * unitPrice;
+        return sum + (isNaN(value) ? 0 : value);
+      }, 0);
 
-    // Average age calculation
-    const patientsWithAge = patients.filter(p => p.date_of_birth);
-    const averagePatientAge = patientsWithAge.length > 0
-      ? patientsWithAge.reduce((sum, p) => {
-          const age = new Date().getFullYear() - new Date(p.date_of_birth).getFullYear();
-          return sum + age;
-        }, 0) / patientsWithAge.length
-      : 0;
+      // Gender distribution - use correct patient field names
+      const genderDistribution = patients.reduce(
+        (acc, patient) => {
+          const gender = patient.patient_gender?.toLowerCase() || 'other';
+          if (gender === 'male') acc.male++;
+          else if (gender === 'female') acc.female++;
+          else acc.other++;
+          return acc;
+        },
+        { male: 0, female: 0, other: 0 }
+      );
 
-    // Top diagnoses
+      // Average age calculation - use correct patient field names
+      const patientsWithAge = patients.filter(p => p.patient_age || p.date_of_birth);
+      const averagePatientAge = patientsWithAge.length > 0
+        ? patientsWithAge.reduce((sum, p) => {
+            if (p.patient_age) return sum + p.patient_age;
+            if (p.date_of_birth) {
+              const age = new Date().getFullYear() - new Date(p.date_of_birth).getFullYear();
+              return sum + age;
+            }
+            return sum + 30; // Default fallback
+          }, 0) / patientsWithAge.length
+        : 0;
+
+      // Top diagnoses
     const diagnosisCounts: { [key: string]: number } = {};
     diagnoses.forEach(d => {
       if (d.primary_diagnosis) {
@@ -207,145 +194,166 @@ export class DashboardService {
       .slice(0, 5)
       .map(([diagnosis, count]) => ({ diagnosis, count }));
 
-    // Urgent cases
-    const urgentCases = diagnoses.filter(d => d.urgency_level === 'high' || d.urgency_level === 'urgent').length;
+      // Urgent cases
+      const urgentCases = diagnoses.filter(d => d.urgency_level === 'high' || d.urgency_level === 'urgent').length;
 
-    // Diagnoses this month
-    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const diagnosesThisMonth = diagnoses.filter(d => new Date(d.created_at) >= thisMonth).length;
+      return {
+        totalPatients: patients.length,
+        totalDiagnoses: diagnoses.length,
+        totalDrugs: drugs.length,
+        recentDiagnoses,
+        lowStockDrugs,
+        expiredDrugs,
+        totalDrugValue,
+        newPatientsThisMonth,
+        averagePatientAge: Math.round(averagePatientAge),
+        genderDistribution,
+        diagnosesThisMonth,
+        topDiagnoses,
+        urgentCases,
+        mode: 'organization',
+        organizationName: orgData?.name,
+        userRole: memberData?.role
+      };
 
-    return {
-      totalPatients: patients.length,
-      totalDiagnoses: diagnoses.length,
-      totalDrugs: drugs.length,
-      recentDiagnoses: recentDiagnosesQuery.data?.length || 0,
-      lowStockDrugs,
-      expiredDrugs,
-      totalDrugValue,
-      newPatientsThisMonth: newPatientsQuery.data?.length || 0,
-      averagePatientAge: Math.round(averagePatientAge),
-      genderDistribution,
-      diagnosesThisMonth,
-      topDiagnoses,
-      urgentCases,
-      mode: 'organization',
-      organizationName: orgData?.name,
-      userRole: memberData?.role
-    };
+    } catch (error) {
+      console.error('Error fetching organization dashboard stats:', error);
+      return {
+        totalPatients: 0,
+        totalDiagnoses: 0,
+        totalDrugs: 0,
+        recentDiagnoses: 0,
+        lowStockDrugs: 0,
+        expiredDrugs: 0,
+        totalDrugValue: 0,
+        newPatientsThisMonth: 0,
+        averagePatientAge: 0,
+        genderDistribution: { male: 0, female: 0, other: 0 },
+        diagnosesThisMonth: 0,
+        topDiagnoses: [],
+        urgentCases: 0,
+        mode: 'organization',
+        organizationName: 'Unknown Organization',
+        userRole: 'member'
+      };
+    }
   }
 
-  // Get individual user dashboard stats
+  // Get individual user dashboard stats using mode-aware services
   private static async getIndividualStats(userId: string): Promise<DashboardStats> {
-    // Parallel queries for all stats
-    const [
-      diagnosesQuery,
-      patientsQuery,
-      drugInventoryQuery,
-      recentDiagnosesQuery,
-      newPatientsQuery
-    ] = await Promise.all([
-      // Total diagnoses
-      supabase
-        .from('diagnoses')
-        .select('id, primary_diagnosis, urgency_level, created_at')
-        .eq('user_id', userId),
+    try {
+      // Use mode-aware services for reliable data fetching
+      const [
+        patientsResult,
+        diagnosesResult,
+        inventoryResult
+      ] = await Promise.all([
+        ModeAwarePatientService.getPatients('individual'),
+        ModeAwareDiagnosisService.getDiagnoses('individual'),
+        ModeAwareDrugInventoryService.getDrugInventory('individual')
+      ]);
 
-      // Total patients
-      supabase
-        .from('patients')
-        .select('id, gender, date_of_birth, created_at')
-        .eq('user_id', userId),
+      // Use the data from mode-aware services
+      const patients = patientsResult.data || [];
+      const diagnoses = diagnosesResult.data || [];
+      const drugs = inventoryResult.data || [];
 
-      // Drug inventory
-      supabase
-        .from('user_drug_inventory')
-        .select('id, quantity, unit_price, expiry_date')
-        .eq('user_id', userId)
-        .eq('is_active', true),
+      // Calculate time-based metrics
+      const now = new Date();
+      const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const thisMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
-      // Recent diagnoses (last 7 days)
-      supabase
-        .from('diagnoses')
-        .select('id')
-        .eq('user_id', userId)
-        .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
+      const recentDiagnoses = diagnoses.filter(d => new Date(d.created_at) >= lastWeek).length;
+      const newPatientsThisMonth = patients.filter(p => new Date(p.created_at) >= thisMonth).length;
+      const diagnosesThisMonth = diagnoses.filter(d => new Date(d.created_at) >= thisMonth).length;
 
-      // New patients this month
-      supabase
-        .from('patients')
-        .select('id')
-        .eq('user_id', userId)
-        .gte('created_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString())
-    ]);
+      // Calculate derived metrics
+      const lowStockDrugs = drugs.filter(drug => drug.quantity < 10).length;
+      const expiredDrugs = drugs.filter(drug => drug.expiry_date && new Date(drug.expiry_date) < now).length;
+      const totalDrugValue = drugs.reduce((sum, drug) => {
+        const quantity = Number(drug.quantity) || 0;
+        const unitPrice = Number(drug.unit_price) || 0;
+        const value = quantity * unitPrice;
+        return sum + (isNaN(value) ? 0 : value);
+      }, 0);
 
-    // Process the data (same logic as organization but for individual tables)
-    const diagnoses = diagnosesQuery.data || [];
-    const patients = patientsQuery.data || [];
-    const drugs = drugInventoryQuery.data || [];
+      // Gender distribution
+      const genderDistribution = patients.reduce(
+        (acc, patient) => {
+          const gender = patient.patient_gender?.toLowerCase() || 'other';
+          if (gender === 'male') acc.male++;
+          else if (gender === 'female') acc.female++;
+          else acc.other++;
+          return acc;
+        },
+        { male: 0, female: 0, other: 0 }
+      );
 
-    // Calculate derived metrics
-    const now = new Date();
-    const lowStockDrugs = drugs.filter(drug => drug.quantity < 10).length;
-    const expiredDrugs = drugs.filter(drug => drug.expiry_date && new Date(drug.expiry_date) < now).length;
-    const totalDrugValue = drugs.reduce((sum, drug) => sum + (drug.quantity * (drug.unit_price || 0)), 0);
+      // Average age calculation
+      const patientsWithAge = patients.filter(p => p.patient_age || p.date_of_birth);
+      const averagePatientAge = patientsWithAge.length > 0
+        ? patientsWithAge.reduce((sum, p) => {
+            if (p.patient_age) return sum + p.patient_age;
+            if (p.date_of_birth) {
+              const age = new Date().getFullYear() - new Date(p.date_of_birth).getFullYear();
+              return sum + age;
+            }
+            return sum + 30;
+          }, 0) / patientsWithAge.length
+        : 0;
 
-    // Gender distribution
-    const genderDistribution = patients.reduce(
-      (acc, patient) => {
-        const gender = patient.gender?.toLowerCase() || 'other';
-        if (gender === 'male') acc.male++;
-        else if (gender === 'female') acc.female++;
-        else acc.other++;
-        return acc;
-      },
-      { male: 0, female: 0, other: 0 }
-    );
+      // Top diagnoses
+      const diagnosisCounts: { [key: string]: number } = {};
+      diagnoses.forEach(d => {
+        if (d.primary_diagnosis) {
+          diagnosisCounts[d.primary_diagnosis] = (diagnosisCounts[d.primary_diagnosis] || 0) + 1;
+        }
+      });
 
-    // Average age calculation
-    const patientsWithAge = patients.filter(p => p.date_of_birth);
-    const averagePatientAge = patientsWithAge.length > 0
-      ? patientsWithAge.reduce((sum, p) => {
-          const age = new Date().getFullYear() - new Date(p.date_of_birth).getFullYear();
-          return sum + age;
-        }, 0) / patientsWithAge.length
-      : 0;
+      const topDiagnoses = Object.entries(diagnosisCounts)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 5)
+        .map(([diagnosis, count]) => ({ diagnosis, count }));
 
-    // Top diagnoses
-    const diagnosisCounts: { [key: string]: number } = {};
-    diagnoses.forEach(d => {
-      if (d.primary_diagnosis) {
-        diagnosisCounts[d.primary_diagnosis] = (diagnosisCounts[d.primary_diagnosis] || 0) + 1;
-      }
-    });
+      // Urgent cases
+      const urgentCases = diagnoses.filter(d => d.urgency_level === 'high' || d.urgency_level === 'urgent').length;
 
-    const topDiagnoses = Object.entries(diagnosisCounts)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 5)
-      .map(([diagnosis, count]) => ({ diagnosis, count }));
+      return {
+        totalPatients: patients.length,
+        totalDiagnoses: diagnoses.length,
+        totalDrugs: drugs.length,
+        recentDiagnoses,
+        lowStockDrugs,
+        expiredDrugs,
+        totalDrugValue,
+        newPatientsThisMonth,
+        averagePatientAge: Math.round(averagePatientAge),
+        genderDistribution,
+        diagnosesThisMonth,
+        topDiagnoses,
+        urgentCases,
+        mode: 'individual'
+      };
 
-    // Urgent cases
-    const urgentCases = diagnoses.filter(d => d.urgency_level === 'high' || d.urgency_level === 'urgent').length;
-
-    // Diagnoses this month
-    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const diagnosesThisMonth = diagnoses.filter(d => new Date(d.created_at) >= thisMonth).length;
-
-    return {
-      totalPatients: patients.length,
-      totalDiagnoses: diagnoses.length,
-      totalDrugs: drugs.length,
-      recentDiagnoses: recentDiagnosesQuery.data?.length || 0,
-      lowStockDrugs,
-      expiredDrugs,
-      totalDrugValue,
-      newPatientsThisMonth: newPatientsQuery.data?.length || 0,
-      averagePatientAge: Math.round(averagePatientAge),
-      genderDistribution,
-      diagnosesThisMonth,
-      topDiagnoses,
-      urgentCases,
-      mode: 'individual'
-    };
+    } catch (error) {
+      console.error('Error fetching individual dashboard stats:', error);
+      return {
+        totalPatients: 0,
+        totalDiagnoses: 0,
+        totalDrugs: 0,
+        recentDiagnoses: 0,
+        lowStockDrugs: 0,
+        expiredDrugs: 0,
+        totalDrugValue: 0,
+        newPatientsThisMonth: 0,
+        averagePatientAge: 0,
+        genderDistribution: { male: 0, female: 0, other: 0 },
+        diagnosesThisMonth: 0,
+        topDiagnoses: [],
+        urgentCases: 0,
+        mode: 'individual'
+      };
+    }
   }
 
   // Get organization activities
