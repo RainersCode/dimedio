@@ -812,8 +812,23 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         throw new Error(dbError || 'Failed to create diagnosis');
       }
 
-      // 2. Send to n8n for AI analysis
-      const { data: n8nResponse, error: n8nError } = await N8nService.sendDiagnosisRequest(cleanedFormData);
+      // 2. Send to n8n for AI analysis with current drug inventory
+      console.log('🔍 Debug: Preparing payload for AI analysis', {
+        activeMode,
+        organizationId,
+        currentMode,
+        userDrugInventoryLength: userDrugInventory?.length || 0,
+        userDrugInventoryItems: userDrugInventory?.slice(0, 3).map(d => d.drug_name) || [],
+        has_drug_inventory: userDrugInventory && userDrugInventory.length > 0
+      });
+
+      const payloadWithInventory = {
+        ...cleanedFormData,
+        user_drug_inventory: userDrugInventory,
+        has_drug_inventory: userDrugInventory && userDrugInventory.length > 0,
+        current_mode: currentMode
+      };
+      const { data: n8nResponse, error: n8nError } = await N8nService.sendDiagnosisRequest(payloadWithInventory);
       
       if (n8nError) {
         // If n8n fails, we still have the diagnosis saved, just without AI results

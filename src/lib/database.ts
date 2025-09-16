@@ -466,40 +466,39 @@ export class N8nService {
     return scoredDrugs;
   }
 
-  static async sendDiagnosisRequest(formData: DiagnosisFormData): Promise<{ data: N8nDiagnosisResponse | null; error: string | null }> {
+  static async sendDiagnosisRequest(formData: DiagnosisFormData & {
+    user_drug_inventory?: any[];
+    has_drug_inventory?: boolean;
+    current_mode?: string
+  }): Promise<{ data: N8nDiagnosisResponse | null; error: string | null }> {
     try {
-      // Get user's drug inventory if they have access
+      // Use drug inventory passed from the form (mode-aware)
       let drugInventory = null;
-      try {
-        const { DrugInventoryService } = await import('./drugInventory');
-        const { hasAccess } = await DrugInventoryService.checkDrugInventoryAccess();
-        
-        if (hasAccess) {
-          const { data: userDrugs } = await DrugInventoryService.getUserDrugInventory();
-          if (userDrugs && userDrugs.length > 0) {
-            // Filter and prioritize most relevant drugs
-            const relevantDrugs = this.filterRelevantDrugs(userDrugs, formData.complaint + ' ' + (formData.symptoms || ''));
-            
-            // Format drug inventory for AI analysis (top 200 with essential info)
-            drugInventory = relevantDrugs
-              .slice(0, 200) // Send up to 200 most relevant drugs for better therapy options
-              .map(drug => ({
-                id: drug.id,
-                name: drug.drug_name,
-                generic_name: drug.generic_name,
-                dosage_form: drug.dosage_form,
-                strength: drug.strength,
-                active_ingredient: drug.active_ingredient,
-                indications: drug.indications?.slice(0, 3), // Limit to 3 indications
-                dosage_adults: drug.dosage_adults,
-                stock_quantity: drug.stock_quantity,
-                is_prescription_only: drug.is_prescription_only,
-                category: drug.category?.name
-              }));
-          }
+
+      if (formData.has_drug_inventory && formData.user_drug_inventory && formData.user_drug_inventory.length > 0) {
+        try {
+          // Filter and prioritize most relevant drugs from the provided inventory
+          const relevantDrugs = this.filterRelevantDrugs(formData.user_drug_inventory, formData.complaint + ' ' + (formData.symptoms || ''));
+
+          // Format drug inventory for AI analysis (top 200 with essential info)
+          drugInventory = relevantDrugs
+            .slice(0, 200) // Send up to 200 most relevant drugs for better therapy options
+            .map(drug => ({
+              id: drug.id,
+              name: drug.drug_name,
+              generic_name: drug.generic_name,
+              dosage_form: drug.dosage_form,
+              strength: drug.strength,
+              active_ingredient: drug.active_ingredient,
+              indications: drug.indications?.slice(0, 3), // Limit to 3 indications
+              dosage_adults: drug.dosage_adults,
+              stock_quantity: drug.stock_quantity,
+              is_prescription_only: drug.is_prescription_only,
+              category: drug.category?.name
+            }));
+        } catch (drugError) {
+          console.log('Could not process drug inventory:', drugError);
         }
-      } catch (drugError) {
-        console.log('Could not fetch drug inventory (this is normal if user has no access):', drugError);
       }
 
       // Detect language of the complaint
