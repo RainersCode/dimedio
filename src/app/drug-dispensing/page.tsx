@@ -11,11 +11,12 @@ import { UserDrugInventory, PatientProfile } from '@/types/database';
 import { useState, useEffect, useRef } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
-import DrugDispensingOrganizationSelector from '@/components/drugDispensing/OrganizationSelector';
+import OrganizationModeSelector from '@/components/shared/OrganizationModeSelector';
 import { supabase } from '@/lib/supabase';
+import { DrugDispensingSkeleton } from '@/components/ui/PageSkeletons';
 
 export default function DrugDispensing() {
-  const { user } = useSupabaseAuth();
+  const { user, loading: authLoading } = useSupabaseAuth();
   const { activeMode, organizationId, loading: modeLoading } = useMultiOrgUserMode();
   const [dispensingHistory, setDispensingHistory] = useState<DrugDispensingRecord[]>([]);
   const [stats, setStats] = useState<DispensingStats | null>(null);
@@ -148,7 +149,7 @@ export default function DrugDispensing() {
     }
   };
 
-  const fetchData = async () => {
+  const fetchData = async (forceRefresh = false) => {
     try {
       setLoading(true);
       setError('');
@@ -163,12 +164,16 @@ export default function DrugDispensing() {
       // Create cache key for current fetch parameters
       const cacheKey = `${activeMode}-${organizationId}-${selectedPeriod}`;
 
-      // Use cached data if available and parameters haven't changed
-      if (cachedDispensingHistory && lastFetchParams === cacheKey) {
+      // Use cached data if available and parameters haven't changed (unless force refresh)
+      if (!forceRefresh && cachedDispensingHistory && lastFetchParams === cacheKey) {
         console.log('📋 Using cached dispensing history');
         setDispensingHistory(cachedDispensingHistory);
         setLoading(false);
         return;
+      }
+
+      if (forceRefresh) {
+        console.log('🔄 Force refreshing - bypassing cache');
       }
 
       // Fetch dispensing history using mode-aware service
@@ -645,7 +650,9 @@ export default function DrugDispensing() {
       setCachedPatients(null);
       setCachedDispensingHistory(null);
       setLastFetchParams('');
-      await fetchData();
+
+      // Force refresh the dispensing history
+      fetchData(true);
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add manual dispensing');
@@ -667,34 +674,11 @@ export default function DrugDispensing() {
     return matchesDrug && matchesPatient && matchesDiagnosis;
   });
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-50">
-        <Navigation />
-        <div className="flex items-center justify-center h-64">
-          <p className="text-slate-600">Please log in to view dispensing history.</p>
-        </div>
-      </div>
-    );
+  // Only show skeleton on initial page load, not during mode switches
+  if (authLoading || (!user && !authLoading)) {
+    return <DrugDispensingSkeleton />;
   }
 
-  // Show loading state while context is initializing
-  if (modeLoading || activeMode === undefined) {
-    return (
-      <div className="min-h-screen bg-slate-50">
-        <Navigation />
-        <div className="flex items-center justify-center h-64">
-          <div className="flex items-center">
-            <svg className="w-5 h-5 mr-2 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p className="text-slate-600">Loading user context...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -716,13 +700,14 @@ export default function DrugDispensing() {
         </div>
 
         {/* Organization/Individual Mode Selector */}
-        <DrugDispensingOrganizationSelector
+        <OrganizationModeSelector
+          title="Drug Dispensing View"
+          description="Switch between different dispensing histories to view individual practice or organization team drug dispensing records."
+          individualLabel="Individual Dispensing"
+          individualDescription="Your personal dispensing records"
+          organizationDescription="Organization dispensing"
           onError={(error) => setError(error)}
-          onSuccess={(message) => {
-            setSuccessMessage(message);
-            // Clear success message after 3 seconds
-            setTimeout(() => setSuccessMessage(null), 3000);
-          }}
+          className="mb-6"
         />
 
         {/* Success Message */}
@@ -1607,20 +1592,27 @@ export default function DrugDispensing() {
                               `⚠️ IMPORTANT: Deleting this record will also REDUCE your current inventory by ${record.quantity_dispensed || 1} units of ${record.drug_name || 'this drug'}.\n\n` +
                               `This action cannot be undone.`
                             );
-                            
+
                             if (confirmed) {
                               try {
+                                // Clear cache BEFORE deletion to ensure fresh data fetch
+                                console.log('🗑️ Clearing cache before deletion...');
+                                setCachedDispensingHistory(null);
+                                setLastFetchParams('');
+
                                 const { success, error } = await ModeAwareDrugDispensingService.deleteDispensing(
                                   record.id,
                                   activeMode,
                                   organizationId
                                 );
-                                
+
                                 if (success) {
-                                  // Remove the record from local state
+                                  // Remove the record from local state for immediate UI feedback
                                   setDispensingHistory(prev => prev.filter(r => r.id !== record.id));
-                                  // Refresh stats
-                                  await fetchData();
+
+                                  // Refresh all data with fresh fetch (force refresh to bypass cache)
+                                  console.log('♻️ Force refreshing data after deletion...');
+                                  await fetchData(true);
                                 } else {
                                   setError(error || 'Failed to delete record');
                                   alert('❌ Failed to delete record: ' + (error || 'Unknown error'));

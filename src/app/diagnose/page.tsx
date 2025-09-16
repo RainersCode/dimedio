@@ -4,8 +4,9 @@ import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import Navigation from '@/components/layout/Navigation';
 import DiagnosisForm from '@/components/diagnosis/DiagnosisForm';
-import DiagnosisOrganizationSelector from '@/components/diagnosis/DiagnosisOrganizationSelector';
+import OrganizationModeSelector from '@/components/shared/OrganizationModeSelector';
 import { useState, useEffect } from 'react';
+import { DiagnosisSkeleton } from '@/components/ui/PageSkeletons';
 
 export default function DiagnosePage() {
   const { user, loading } = useSupabaseAuth();
@@ -20,15 +21,9 @@ export default function DiagnosePage() {
     }
   }, [user, loading]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50">
-        <Navigation />
-        <div className="flex items-center justify-center py-20">
-          <div className="animate-spin w-8 h-8 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
-        </div>
-      </div>
-    );
+  // Only show skeleton on initial page load, not during mode switches
+  if (loading || (!user && !loading)) {
+    return <DiagnosisSkeleton />;
   }
 
   return (
@@ -44,13 +39,14 @@ export default function DiagnosePage() {
         </div>
 
         {/* Organization Selector */}
-        <DiagnosisOrganizationSelector
+        <OrganizationModeSelector
+          title="Diagnosis Context"
+          description="Choose which context to create this diagnosis in"
+          individualLabel="Personal Practice"
+          individualDescription="Your personal diagnosis records"
+          organizationDescription="Organization diagnosis"
           onError={setError}
-          onSuccess={(message) => {
-            setError(null);
-            setSuccessMessage(message);
-            setTimeout(() => setSuccessMessage(null), 3000);
-          }}
+          className="mb-6"
         />
 
         {/* Error Alert */}

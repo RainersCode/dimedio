@@ -6,15 +6,16 @@ import { UndispensedMedicationsService } from '@/lib/undispensedMedicationsServi
 import { useUndispensedMedicationsRefresh } from '@/hooks/useUndispensedMedicationsRefresh';
 import { PatientProfile } from '@/types/database';
 import type { OrganizationPatient } from '@/types/organization';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
-import PatientOrganizationSelector from '@/components/patients/PatientOrganizationSelector';
+import OrganizationModeSelector from '@/components/shared/OrganizationModeSelector';
 import Link from 'next/link';
+import { PatientsSkeleton } from '@/components/ui/PageSkeletons';
 
 export default function Patients() {
-  const { user } = useSupabaseAuth();
-  const { activeMode, organizationId } = useMultiOrgUserMode();
+  const { user, loading: authLoading } = useSupabaseAuth();
+  const { activeMode, organizationId, loading: contextLoading } = useMultiOrgUserMode();
   const [patients, setPatients] = useState<((PatientProfile | OrganizationPatient) & { diagnosis_count: number; last_diagnosis: string; last_diagnosis_severity: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -25,18 +26,18 @@ export default function Patients() {
   const [patientsWithUndispensedMeds, setPatientsWithUndispensedMeds] = useState<Set<string>>(new Set());
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (user) {
-      // Run both operations in parallel for faster loading
-      Promise.all([
-        fetchPatients(),
-        checkUndispensedMedications()
-      ]);
-    }
-  }, [user, activeMode, organizationId]);
+  // Use refs to track ongoing operations and prevent duplicate calls
+  const fetchingRef = useRef(false);
+  const checkingUndispensedRef = useRef(false);
 
   const checkUndispensedMedications = useCallback(async () => {
+    if (checkingUndispensedRef.current) {
+      console.log('Skipping checkUndispensedMedications - already in progress');
+      return;
+    }
+
     try {
+      checkingUndispensedRef.current = true;
       const { patients: undispensedPatients } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications(
         activeMode,
         organizationId
@@ -46,14 +47,19 @@ export default function Patients() {
     } catch (error) {
       console.error('Error checking undispensed medications:', error);
       setPatientsWithUndispensedMeds(new Set());
+    } finally {
+      checkingUndispensedRef.current = false;
     }
   }, [activeMode, organizationId]);
 
-  // Listen for refresh events
-  useUndispensedMedicationsRefresh(checkUndispensedMedications);
+  const fetchPatients = useCallback(async () => {
+    if (fetchingRef.current) {
+      console.log('Skipping fetchPatients - already in progress');
+      return;
+    }
 
-  const fetchPatients = async () => {
     try {
+      fetchingRef.current = true;
       setLoading(true);
       setError('');
       console.log('Fetching patients with:', { activeMode, organizationId });
@@ -72,9 +78,28 @@ export default function Patients() {
       console.error('Error fetching patients:', err);
       setError('Failed to fetch patients');
     } finally {
+      fetchingRef.current = false;
       setLoading(false);
     }
-  };
+  }, [activeMode, organizationId]);
+
+  // Listen for refresh events
+  useUndispensedMedicationsRefresh(checkUndispensedMedications);
+
+  useEffect(() => {
+    if (user && !contextLoading) {
+      // Add a small delay to debounce rapid context changes
+      const timeoutId = setTimeout(() => {
+        // Run both operations in parallel for faster loading
+        Promise.all([
+          fetchPatients(),
+          checkUndispensedMedications()
+        ]);
+      }, 100); // 100ms debounce
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [user, activeMode, organizationId, contextLoading, fetchPatients, checkUndispensedMedications]);
 
   const handleDeletePatient = async (patientId: string) => {
     try {
@@ -146,15 +171,9 @@ export default function Patients() {
     return matchesSearch && matchesStatus;
   });
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-50">
-        <Navigation />
-        <div className="flex items-center justify-center h-64">
-          <p className="text-slate-600">Please log in to view patients.</p>
-        </div>
-      </div>
-    );
+  // Only show skeleton on initial page load, not during mode switches
+  if (authLoading || (!user && !authLoading)) {
+    return <PatientsSkeleton />;
   }
 
   return (
@@ -176,13 +195,14 @@ export default function Patients() {
         </div>
 
         {/* Organization Selector */}
-        <PatientOrganizationSelector
+        <OrganizationModeSelector
+          title="Patient Records View"
+          description="Switch between different patient record collections to manage patients for individual practice or organization teams."
+          individualLabel="Individual Patient Records"
+          individualDescription="Your personal patient records"
+          organizationDescription="Organization patients"
           onError={setError}
-          onSuccess={(message) => {
-            setError('');
-            setSuccessMessage(message);
-            setTimeout(() => setSuccessMessage(null), 3000);
-          }}
+          className="mb-8"
         />
 
         {/* Error Alert */}

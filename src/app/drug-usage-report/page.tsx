@@ -9,7 +9,8 @@ import { ModeAwareDrugInventoryService } from '@/lib/modeAwareDrugInventoryServi
 import { useState, useEffect, useRef } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
-import OrganizationSelector from '@/components/drugInventory/OrganizationSelector';
+import OrganizationModeSelector from '@/components/shared/OrganizationModeSelector';
+import { DrugUsageReportSkeleton } from '@/components/ui/PageSkeletons';
 
 interface DrugUsageSummary {
   drug_name: string;
@@ -24,7 +25,7 @@ interface DrugUsageSummary {
 }
 
 export default function DrugUsageReport() {
-  const { user } = useSupabaseAuth();
+  const { user, loading: authLoading } = useSupabaseAuth();
   const {
     activeMode,
     membershipStatus,
@@ -299,15 +300,9 @@ export default function DrugUsageReport() {
       .sort((a, b) => new Date(b.removed_at).getTime() - new Date(a.removed_at).getTime());
   };
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-50">
-        <Navigation />
-        <div className="flex items-center justify-center h-64">
-          <p className="text-slate-600">Please log in to view drug usage report.</p>
-        </div>
-      </div>
-    );
+  // Only show skeleton on initial page load, not during mode switches
+  if (authLoading || (!user && !authLoading)) {
+    return <DrugUsageReportSkeleton />;
   }
 
   return (
@@ -329,17 +324,15 @@ export default function DrugUsageReport() {
         </div>
 
         {/* Organization/Individual Mode Selector */}
-        {membershipStatus !== 'individual' && (
-          <div className="mb-6">
-            <OrganizationSelector
-              onError={(error) => setErrorMessage(error)}
-              onSuccess={(message) => {
-                setSuccessMessage(message);
-                setErrorMessage('');
-              }}
-            />
-          </div>
-        )}
+        <OrganizationModeSelector
+          title="Drug Usage Report View"
+          description="Switch between different usage reports to view individual practice or organization team drug usage analytics."
+          individualLabel="Individual Usage Report"
+          individualDescription="Your personal drug usage analytics"
+          organizationDescription="Organization usage report"
+          onError={(error) => setErrorMessage(error)}
+          className="mb-6"
+        />
 
         {/* Success/Error Messages */}
         {successMessage && (

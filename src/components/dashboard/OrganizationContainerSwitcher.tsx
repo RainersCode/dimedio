@@ -23,7 +23,7 @@ export default function OrganizationContainerSwitcher({ onError, onSuccess }: Or
     if (error) {
       onError?.(error);
     } else {
-      onSuccess?.('Switched to Individual mode');
+      // onSuccess?.('Switched to Individual mode');
     }
   };
 
@@ -32,7 +32,7 @@ export default function OrganizationContainerSwitcher({ onError, onSuccess }: Or
     if (error) {
       onError?.(error);
     } else {
-      onSuccess?.(`Switched to ${organizationName}`);
+      // onSuccess?.(`Switched to ${organizationName}`);
     }
   };
 

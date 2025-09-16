@@ -306,6 +306,106 @@ export class ModeAwarePatientService {
     }
   }
 
+  // Get a single patient with their full diagnosis history based on active mode
+  static async getPatientById(
+    patientId: string,
+    activeMode: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{
+    data: ((PatientProfile | OrganizationPatient) & { diagnoses: (Diagnosis | OrganizationDiagnosis)[] }) | null;
+    error: string | null;
+    mode: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated', mode: 'individual' };
+    }
+
+    try {
+      if (activeMode === 'organization' && organizationId) {
+        // Use organization patient service
+        const { data: orgData, error: orgError } = await OrganizationPatientService.getOrganizationPatientById(patientId, organizationId);
+        return { data: orgData, error: orgError, mode: 'organization' };
+      } else {
+        // Use individual patient service
+
+        // Check if this is an anonymous patient (format: anonymous-{diagnosisId})
+        if (patientId.startsWith('anonymous-')) {
+          const diagnosisId = patientId.replace('anonymous-', '');
+
+          // Get the diagnosis
+          const { data: diagnosis, error: diagnosisError } = await supabase
+            .from('diagnoses')
+            .select('*')
+            .eq('id', diagnosisId)
+            .eq('user_id', user.id)
+            .single();
+
+          if (diagnosisError) {
+            console.error('Error fetching anonymous patient diagnosis:', diagnosisError);
+            return { data: null, error: diagnosisError.message, mode: 'individual' };
+          }
+
+          // Create a mock patient profile for anonymous patients
+          const anonymousPatient = {
+            id: patientId,
+            patient_name: diagnosis.patient_name || 'Anonymous Patient',
+            patient_id: diagnosis.patient_id,
+            date_of_birth: diagnosis.date_of_birth,
+            gender: diagnosis.gender,
+            contact_info: diagnosis.contact_info,
+            emergency_contact: diagnosis.emergency_contact,
+            medical_history: diagnosis.medical_history,
+            allergies: diagnosis.allergies,
+            current_medications: diagnosis.current_medications,
+            insurance_info: diagnosis.insurance_info,
+            user_id: user.id,
+            created_at: diagnosis.created_at,
+            updated_at: diagnosis.updated_at,
+            last_diagnosis_date: diagnosis.created_at,
+            last_symptoms: diagnosis.symptoms,
+            diagnoses: [diagnosis]
+          };
+
+          return { data: anonymousPatient, error: null, mode: 'individual' };
+        }
+
+        // For regular patients, get the patient profile first
+        const { data: patient, error: patientError } = await supabase
+          .from('patient_profiles')
+          .select('*')
+          .eq('id', patientId)
+          .eq('user_id', user.id)
+          .single();
+
+        if (patientError) {
+          console.error('Error fetching patient profile:', patientError);
+          return { data: null, error: patientError.message, mode: 'individual' };
+        }
+
+        // Get patient diagnoses using the existing method
+        const { data: diagnoses, error: diagnosesError } = await this.getPatientDiagnoses(patientId, activeMode, organizationId);
+
+        if (diagnosesError) {
+          console.error('Error fetching patient diagnoses:', diagnosesError);
+          return { data: null, error: diagnosesError, mode: 'individual' };
+        }
+
+        // Combine patient with diagnoses
+        const patientWithDiagnoses = {
+          ...patient,
+          diagnoses: diagnoses || []
+        };
+
+        return { data: patientWithDiagnoses, error: null, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error getting patient by ID:', error);
+      return { data: null, error: 'Failed to get patient', mode: 'individual' };
+    }
+  }
+
   // Get patient diagnoses based on active mode
   static async getPatientDiagnoses(
     patientId: string,

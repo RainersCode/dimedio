@@ -16,7 +16,94 @@ export interface UndispensedMedicationInfo {
 }
 
 export class UndispensedMedicationsService {
-  
+
+  // Optimized batch method to get diagnoses for multiple patients
+  private static async getBatchPatientDiagnoses(
+    patientIds: string[],
+    activeMode?: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<Map<string, any[]>> {
+    const diagnosesByPatient = new Map<string, any[]>();
+
+    if (patientIds.length === 0) {
+      return diagnosesByPatient;
+    }
+
+    try {
+      if (activeMode === 'organization' && organizationId) {
+        // Get organization diagnoses in batch
+        const { supabase } = await import('./supabase');
+        const { data: diagnoses } = await supabase
+          .from('organization_diagnoses')
+          .select('*')
+          .eq('organization_id', organizationId)
+          .in('patient_id', patientIds.filter(id => id && !id.startsWith('anonymous-')))
+          .order('created_at', { ascending: false });
+
+        // Group by patient
+        if (diagnoses) {
+          diagnoses.forEach(diagnosis => {
+            const patientId = diagnosis.patient_id;
+            if (!diagnosesByPatient.has(patientId)) {
+              diagnosesByPatient.set(patientId, []);
+            }
+            diagnosesByPatient.get(patientId)!.push(diagnosis);
+          });
+        }
+      } else {
+        // Get individual diagnoses in batch
+        const { supabase } = await import('./supabase');
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (user) {
+          const regularPatientIds = patientIds.filter(id => id && !id.startsWith('anonymous-'));
+          const anonymousPatientIds = patientIds.filter(id => id && id.startsWith('anonymous-'));
+
+          // Get regular patient diagnoses
+          if (regularPatientIds.length > 0) {
+            const { data: diagnoses } = await supabase
+              .from('diagnoses')
+              .select('*')
+              .eq('user_id', user.id)
+              .in('patient_id', regularPatientIds)
+              .order('created_at', { ascending: false });
+
+            if (diagnoses) {
+              diagnoses.forEach(diagnosis => {
+                const patientId = diagnosis.patient_id;
+                if (!diagnosesByPatient.has(patientId)) {
+                  diagnosesByPatient.set(patientId, []);
+                }
+                diagnosesByPatient.get(patientId)!.push(diagnosis);
+              });
+            }
+          }
+
+          // Handle anonymous patients
+          if (anonymousPatientIds.length > 0) {
+            const diagnosisIds = anonymousPatientIds.map(id => id.replace('anonymous-', ''));
+            const { data: diagnoses } = await supabase
+              .from('diagnoses')
+              .select('*')
+              .eq('user_id', user.id)
+              .in('id', diagnosisIds);
+
+            if (diagnoses) {
+              diagnoses.forEach(diagnosis => {
+                const anonymousPatientId = `anonymous-${diagnosis.id}`;
+                diagnosesByPatient.set(anonymousPatientId, [diagnosis]);
+              });
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching batch patient diagnoses:', error);
+    }
+
+    return diagnosesByPatient;
+  }
+
   static async getPatientsWithUndispensedMedications(
     activeMode?: UserWorkingMode,
     organizationId?: string | null
@@ -41,19 +128,24 @@ export class UndispensedMedicationsService {
       const undispensedPatients: UndispensedMedicationInfo[] = [];
       let totalUndispensedCount = 0;
 
-      // For each patient, get their full details including diagnoses
+      // Optimize: Get all diagnoses for all patients in batch queries instead of individual calls
+      const patientIds = patients.map(p => p.id).filter(Boolean);
+      const allDiagnoses = await this.getBatchPatientDiagnoses(patientIds, activeMode, organizationId);
+
+      // For each patient, check their diagnoses for undispensed medications
       for (const patient of patients) {
         try {
-          const { data: patientDetails, error: detailsError } = await PatientService.getPatientById(patient.id);
-          
-          if (detailsError || !patientDetails?.diagnoses) {
+          const patientDiagnoses = allDiagnoses.get(patient.id) || [];
+
+          if (patientDiagnoses.length === 0) {
+            // Skip patients that don't have diagnoses
             continue;
           }
 
           const patientUndispensedDrugs: UndispensedMedicationInfo[] = [];
 
           // Check each diagnosis for undispensed medications
-          for (const diagnosis of patientDetails.diagnoses) {
+          for (const diagnosis of patientDiagnoses) {
             // Skip if entire diagnosis has been dispensed
             if (recordedDispensings.includes(diagnosis.id)) {
               continue;
@@ -69,7 +161,7 @@ export class UndispensedMedicationsService {
 
               diagnosis.inventory_drugs.forEach((drug: any, index: number) => {
                 const drugKey = `${diagnosis.id}-${index}`;
-                
+
                 // If this individual drug hasn't been dispensed
                 if (!individualDispensed.includes(drugKey)) {
                   undispensedDrugs.push({
@@ -117,12 +209,18 @@ export class UndispensedMedicationsService {
     }
   }
 
-  static async getPatientUndispensedMedications(patientId: string): Promise<{
+  static async getPatientUndispensedMedications(
+    patientId: string,
+    activeMode?: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{
     undispensedDrugs: UndispensedMedicationInfo[];
     hasUndispensed: boolean;
   }> {
     try {
-      const { data: patient, error } = await PatientService.getPatientById(patientId);
+      const { data: patient, error } = activeMode
+        ? await ModeAwarePatientService.getPatientById(patientId, activeMode, organizationId)
+        : await PatientService.getPatientById(patientId);
       if (error || !patient?.diagnoses) {
         return { undispensedDrugs: [], hasUndispensed: false };
       }

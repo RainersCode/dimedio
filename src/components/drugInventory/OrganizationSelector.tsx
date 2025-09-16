@@ -32,7 +32,7 @@ export default function OrganizationSelector({ onError, onSuccess }: Organizatio
       if (error) {
         onError?.(error);
       } else {
-        onSuccess?.('Switched to Individual mode');
+        // onSuccess?.('Switched to Individual mode');
       }
     } catch (err) {
       onError?.('Failed to switch to individual mode');
@@ -48,7 +48,7 @@ export default function OrganizationSelector({ onError, onSuccess }: Organizatio
       if (error) {
         onError?.(error);
       } else {
-        onSuccess?.(`Switched to ${organizationName}`);
+        // onSuccess?.(`Switched to ${organizationName}`);
       }
     } catch (err) {
       onError?.(`Failed to switch to ${organizationName}`);

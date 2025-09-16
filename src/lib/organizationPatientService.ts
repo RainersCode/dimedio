@@ -290,7 +290,10 @@ export class OrganizationPatientService {
         .single();
 
       if (patientError) {
-        console.error('Error fetching organization patient:', patientError);
+        // Don't log "Cannot coerce the result to a single JSON object" errors as they're expected when patients don't exist
+        if (patientError.code !== 'PGRST116') {
+          console.error('Error fetching organization patient:', patientError);
+        }
         return { data: null, error: patientError.message };
       }
 

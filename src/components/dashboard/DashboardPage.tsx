@@ -8,7 +8,7 @@ import { DashboardService, DashboardStats, DashboardActivity } from '@/lib/dashb
 import ModeDemo from './ModeDemo';
 import OrganizationDropdown from './OrganizationDropdown';
 import OrganizationStatusCard from './OrganizationStatusCard';
-import OrganizationContainerSwitcher from './OrganizationContainerSwitcher';
+import OrganizationModeSelector from '@/components/shared/OrganizationModeSelector';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -156,16 +156,6 @@ export default function DashboardPage() {
     }
   };
 
-  if (modeLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-slate-600">Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -239,12 +229,15 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Organization Container Switcher */}
-        <OrganizationContainerSwitcher
+        {/* Organization Mode Selector */}
+        <OrganizationModeSelector
+          title="Dashboard View"
+          description="Switch between different contexts to view individual practice or organization dashboard data."
+          individualLabel="Individual Dashboard"
+          individualDescription="Your personal practice dashboard"
+          organizationDescription="Organization dashboard"
           onError={setError}
-          onSuccess={(message) => {
-            setError(null);
-          }}
+          className="mb-8"
         />
 
         {/* Quick Actions */}

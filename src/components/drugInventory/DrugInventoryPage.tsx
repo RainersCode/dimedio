@@ -9,7 +9,7 @@ import { DrugInventoryExportService } from '@/lib/drugInventoryExport';
 import { useOrganizationPermissions } from '@/hooks/useOrganizationPermissions';
 import { ManageInventoryGuard, WriteOffGuard } from '@/components/organization/PermissionGuard';
 import UserModeIndicator from '@/components/organization/UserModeIndicator';
-import OrganizationSelector from './OrganizationSelector';
+import OrganizationModeSelector from '@/components/shared/OrganizationModeSelector';
 import type { UserDrugInventory, DrugCategory } from '@/types/database';
 import type { OrganizationDrugInventory } from '@/types/organization';
 import AddDrugModal from './AddDrugModal';
@@ -341,10 +341,9 @@ export default function DrugInventoryPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
-          <p className="text-slate-600">Loading drug inventory...</p>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-center py-20">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
         </div>
       </div>
     );
@@ -391,9 +390,13 @@ export default function DrugInventoryPage() {
             </p>
           </div>
 
-          <OrganizationSelector
+          <OrganizationModeSelector
+            title="Drug Inventory View"
+            description="Switch between different drug inventories to manage medications for individual practice or organization teams."
+            individualLabel="Individual Inventory"
+            individualDescription="Your personal drug inventory"
+            organizationDescription="Organization inventory"
             onError={setError}
-            onSuccess={setSuccessMessage}
           />
         </div>
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { MultiOrganizationService, UserOrganizationMembership } from '@/lib/multiOrganizationService';
 import type { Organization } from '@/types/organization';
@@ -61,7 +61,7 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load preferences from localStorage
+  // Load preferences from localStorage (no dependencies needed since it's pure localStorage access)
   const loadPreferences = useCallback(() => {
     if (typeof window === 'undefined') return { mode: 'individual' as UserWorkingMode, organizationId: null };
 
@@ -77,7 +77,7 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
     }
   }, []);
 
-  // Save preferences to localStorage
+  // Save preferences to localStorage (no dependencies needed since it's pure localStorage access)
   const savePreferences = useCallback((mode: UserWorkingMode, organizationId?: string | null) => {
     if (typeof window === 'undefined') return;
 
@@ -91,6 +91,16 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
     } catch {
       // Ignore localStorage errors
     }
+  }, []);
+
+  // Initialize state from localStorage on mount
+  const initializeFromStorage = useCallback(() => {
+    const { mode, organizationId } = loadPreferences();
+    if (mode === 'individual') {
+      setActiveMode('individual');
+      setActiveOrganization(null);
+    }
+    // For organization mode, we'll set it when we get the organizations data
   }, []);
 
   // Load user mode information
@@ -162,7 +172,7 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
     } finally {
       setLoading(false);
     }
-  }, [user, loadPreferences, savePreferences]);
+  }, [user]); // Only depend on user to prevent loops
 
   // Switch to individual mode
   const switchToIndividualMode = useCallback(async (): Promise<{ error: string | null }> => {
@@ -177,7 +187,7 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
       console.error('Error switching to individual mode:', err);
       return { error: 'Failed to switch to individual mode' };
     }
-  }, [savePreferences]);
+  }, []); // No dependencies needed
 
   // Switch to organization mode (use first available org if no specific org provided)
   const switchToOrganizationMode = useCallback(async (organizationId?: string): Promise<{ error: string | null }> => {
@@ -217,7 +227,7 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
       console.error('Error switching to organization mode:', err);
       return { error: 'Failed to switch to organization mode' };
     }
-  }, [membershipStatus, allOrganizations, savePreferences]);
+  }, [membershipStatus, allOrganizations]); // Remove savePreferences dependency
 
   // Switch to a specific organization
   const switchToSpecificOrganization = useCallback(async (organizationId: string): Promise<{ error: string | null }> => {
@@ -235,7 +245,7 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
       console.error('Error switching to organization:', err);
       return { error: 'Failed to switch to organization' };
     }
-  }, [allOrganizations, savePreferences]);
+  }, [allOrganizations]); // Remove savePreferences dependency
 
   // Get available organizations
   const getAvailableOrganizations = useCallback((): UserOrganizationMembership[] => {
@@ -247,10 +257,19 @@ export function MultiOrgUserModeProvider({ children }: { children: React.ReactNo
     return allOrganizations.some(org => org.organization_id === organizationId);
   }, [allOrganizations]);
 
-  // Load mode info when user changes
+  // Initialize from localStorage on mount
   useEffect(() => {
-    refreshModeInfo();
-  }, [refreshModeInfo]);
+    initializeFromStorage();
+  }, [initializeFromStorage]);
+
+  // Load mode info when user changes (with debounce to prevent rapid calls)
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      refreshModeInfo();
+    }, 50); // Small debounce to prevent rapid successive calls
+
+    return () => clearTimeout(timeoutId);
+  }, [user]); // Only depend on user, not the function itself
 
   // Computed properties for backward compatibility
   const organization = activeOrganization?.organization || null;
