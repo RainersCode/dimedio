@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 import { ModeAwarePatientService } from '@/lib/modeAwarePatientService';
+import { calculateAge, formatAge } from '@/lib/ageCalculation';
 import type { PatientProfile } from '@/types/database';
 import type { OrganizationPatient } from '@/types/organization';
 
@@ -17,6 +18,7 @@ interface PatientData {
   patient_name: string;
   patient_surname: string;
   patient_id: string;
+  patient_gender?: string;
   date_of_birth?: string;
   phone?: string;
   email?: string;
@@ -37,11 +39,13 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isLoadingAllPatients, setIsLoadingAllPatients] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const [newPatientData, setNewPatientData] = useState({
     patient_name: '',
     patient_surname: '',
     patient_id: '',
+    patient_gender: '',
     date_of_birth: '',
     phone: '',
     email: '',
@@ -88,12 +92,39 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
     }
   };
 
+  const loadAllPatients = async () => {
+    setIsLoadingAllPatients(true);
+    try {
+      // Use getPatients to get all patients instead of search
+      const { data, error } = await ModeAwarePatientService.getPatients(
+        activeMode,
+        organizationId
+      );
+
+      if (error) {
+        onError(error);
+        setSearchResults([]);
+      } else {
+        setSearchResults(data || []);
+        setShowResults(true);
+        // Clear search query to show we're showing all patients
+        setSearchQuery('');
+      }
+    } catch (error) {
+      onError('Failed to load patients');
+      setSearchResults([]);
+    } finally {
+      setIsLoadingAllPatients(false);
+    }
+  };
+
   const selectPatient = (patient: PatientProfile | OrganizationPatient) => {
     const patientData: PatientData = {
       id: patient.id,
       patient_name: patient.patient_name || '',
       patient_surname: patient.patient_surname || '',
       patient_id: patient.patient_id || '',
+      patient_gender: (patient as any).patient_gender || undefined,
       date_of_birth: patient.date_of_birth || undefined,
       phone: patient.phone || undefined,
       email: patient.email || undefined,
@@ -136,6 +167,7 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
           patient_name: '',
           patient_surname: '',
           patient_id: '',
+          patient_gender: '',
           date_of_birth: '',
           phone: '',
           email: '',
@@ -216,7 +248,14 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
               </h4>
               <p className="text-sm text-emerald-700">ID: {selectedPatient.patient_id}</p>
               {selectedPatient.date_of_birth && (
-                <p className="text-sm text-emerald-700">DOB: {selectedPatient.date_of_birth}</p>
+                <div className="text-sm text-emerald-700">
+                  <span>DOB: {selectedPatient.date_of_birth}</span>
+                  {calculateAge(selectedPatient.date_of_birth) !== null && (
+                    <span className="ml-2 font-medium">
+                      ({formatAge(calculateAge(selectedPatient.date_of_birth)!)})
+                    </span>
+                  )}
+                </div>
               )}
             </div>
             <button
@@ -241,10 +280,28 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search patients by name or ID..."
-            className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+            className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
           />
-          {isSearching && (
-            <div className="absolute right-3 top-3">
+
+          {/* Dropdown Arrow Button */}
+          <button
+            type="button"
+            onClick={loadAllPatients}
+            disabled={isLoadingAllPatients || isSearching}
+            className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 disabled:opacity-50"
+            title="Show all patients"
+          >
+            {isLoadingAllPatients ? (
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600"></div>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            )}
+          </button>
+
+          {(isSearching && !isLoadingAllPatients) && (
+            <div className="absolute right-12 top-3">
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600"></div>
             </div>
           )}
@@ -252,19 +309,47 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
           {/* Search Results */}
           {showResults && searchResults.length > 0 && (
             <div className="absolute z-10 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-              {searchResults.map((patient) => (
+              {searchResults.length > 10 && (
+                <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-sm text-slate-600">
+                  {searchResults.length} patients found {searchQuery ? `for "${searchQuery}"` : '(all patients)'}
+                </div>
+              )}
+              {searchResults.map((patient: any) => (
                 <button
                   key={patient.id}
                   onClick={() => selectPatient(patient)}
                   className="w-full px-4 py-3 text-left hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
                 >
-                  <div className="font-medium text-slate-900">
-                    {patient.patient_name} {patient.patient_surname}
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="font-medium text-slate-900">
+                        {patient.patient_name} {patient.patient_surname}
+                      </div>
+                      <div className="text-sm text-slate-600">ID: {patient.patient_id}</div>
+                      {patient.date_of_birth && (
+                        <div className="text-sm text-slate-500">
+                          <span>DOB: {patient.date_of_birth}</span>
+                          {calculateAge(patient.date_of_birth) !== null && (
+                            <span className="ml-2 font-medium text-slate-600">
+                              ({formatAge(calculateAge(patient.date_of_birth)!)})
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {patient.diagnosis_count !== undefined && (
+                      <div className="text-right ml-3">
+                        <div className="text-xs text-slate-500">
+                          {patient.diagnosis_count} visit{patient.diagnosis_count !== 1 ? 's' : ''}
+                        </div>
+                        {patient.last_diagnosis && patient.last_diagnosis !== 'No diagnosis' && (
+                          <div className="text-xs text-slate-400 max-w-24 truncate">
+                            {patient.last_diagnosis}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-sm text-slate-600">ID: {patient.patient_id}</div>
-                  {patient.date_of_birth && (
-                    <div className="text-sm text-slate-500">DOB: {patient.date_of_birth}</div>
-                  )}
                 </button>
               ))}
             </div>
@@ -313,6 +398,20 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
                 placeholder="Unique medical record number"
                 required
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-blue-800 mb-1">Gender</label>
+              <select
+                value={newPatientData.patient_gender}
+                onChange={(e) => setNewPatientData({ ...newPatientData, patient_gender: e.target.value })}
+                className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Select gender</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+                <option value="prefer_not_to_say">Prefer not to say</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-blue-800 mb-1">Date of Birth</label>

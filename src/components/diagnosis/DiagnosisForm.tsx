@@ -14,6 +14,7 @@ import type { OrganizationDrugInventory } from '@/types/organization';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { CreditsService } from '@/lib/credits';
 import { triggerUndispensedMedicationsRefresh } from '@/hooks/useUndispensedMedicationsRefresh';
+import { calculateAge, formatAge, validateDateOfBirth } from '@/lib/ageCalculation';
 import DiagnosisDebug from './DiagnosisDebug';
 import { DiagnosisExportDropdown } from './DiagnosisExportButtons';
 import PatientSelector from './PatientSelector';
@@ -110,6 +111,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     patient_name: string;
     patient_surname: string;
     patient_id: string;
+    patient_gender?: string;
     date_of_birth?: string;
     phone?: string;
     email?: string;
@@ -138,7 +140,9 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         patient_name: patient.patient_name,
         patient_surname: patient.patient_surname,
         patient_id: patient.patient_id,
+        patient_gender: patient.patient_gender || '',
         date_of_birth: patient.date_of_birth || '',
+        patient_age: calculateAge(patient.date_of_birth || '') || undefined,
         // You can also populate other fields if needed
         allergies: patient.allergies || prev.allergies,
         chronic_conditions: patient.chronic_conditions || prev.chronic_conditions,
@@ -150,7 +154,9 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         patient_name: '',
         patient_surname: '',
         patient_id: '',
+        patient_gender: '',
         date_of_birth: '',
+        patient_age: undefined,
         // Optionally clear allergies and chronic_conditions or keep them
       }));
     }
@@ -2501,43 +2507,6 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         {/* Basic Information - Always Visible */}
         <div className="bg-white border border-slate-200 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-slate-900 mb-4">Basic Information</h3>
-          
-          {/* Patient Age & Gender */}
-          <div className="grid md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Patient Age
-              </label>
-              <input
-                type="number"
-                name="patient_age"
-                value={formData.patient_age || ''}
-                onChange={handleInputChange}
-                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                placeholder="e.g., 45"
-                min="0"
-                max="150"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Patient Gender
-              </label>
-              <select
-                name="patient_gender"
-                value={formData.patient_gender}
-                onChange={handleInputChange}
-                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-              >
-                <option value="">Select gender</option>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-                <option value="other">Other</option>
-                <option value="prefer_not_to_say">Prefer not to say</option>
-              </select>
-            </div>
-          </div>
 
           {/* Patient Complaint */}
           <div className="mb-4">
