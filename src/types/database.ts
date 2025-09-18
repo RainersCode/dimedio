@@ -196,6 +196,23 @@ export interface DrugSuggestion {
   prescription_required?: boolean;
 }
 
+// Enhanced AI response structures
+export interface ClinicalAssessment {
+  vital_signs_interpretation: string;
+  severity_assessment: string;
+  risk_stratification: string;
+  red_flags: string[];
+  clinical_pearls: string[];
+}
+
+export interface MonitoringPlan {
+  immediate: string[];
+  short_term: string[];
+  long_term: string[];
+  success_metrics: string[];
+  warning_signs: string[];
+}
+
 // n8n response format based on your sample
 export interface N8nDiagnosisResponse {
   primary_diagnosis: string;
@@ -208,6 +225,10 @@ export interface N8nDiagnosisResponse {
   improved_patient_history?: string;
   severity_level?: 'low' | 'moderate' | 'high' | 'critical';
   confidence_score?: number;
+
+  // Enhanced AI response fields
+  clinical_assessment?: ClinicalAssessment;
+  monitoring_plan?: MonitoringPlan;
 }
 
 // Parsed n8n response
@@ -222,6 +243,10 @@ export interface ParsedDiagnosis {
   improved_patient_history?: string;
   confidence_score?: number;
   severity_level?: 'low' | 'moderate' | 'high' | 'critical';
+
+  // Enhanced AI response fields
+  clinical_assessment?: ClinicalAssessment;
+  monitoring_plan?: MonitoringPlan;
 }
 
 // Drug Inventory Types

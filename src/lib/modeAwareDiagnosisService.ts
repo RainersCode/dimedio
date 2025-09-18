@@ -286,10 +286,53 @@ export class ModeAwareDiagnosisService {
     try {
       if (activeMode === 'organization' && organizationId) {
         // Update organization diagnosis
+        console.log('=== ORGANIZATION DIAGNOSIS UPDATE DEBUG ===');
+        console.log('Updates object:', updates);
+        console.log('Numeric fields in updates:', {
+          confidence_score: updates.confidence_score,
+          pain_scale: updates.pain_scale,
+          temperature: updates.temperature,
+          heart_rate: updates.heart_rate,
+          blood_pressure_systolic: updates.blood_pressure_systolic,
+          blood_pressure_diastolic: updates.blood_pressure_diastolic
+        });
+        console.log('=== END UPDATE DEBUG ===');
+
+        // Fix numeric fields that might cause overflow and format arrays
+        const fixedUpdates = {
+          ...updates,
+          // Convert confidence_score from percentage to decimal if needed
+          confidence_score: updates.confidence_score && updates.confidence_score > 1
+            ? updates.confidence_score / 100
+            : updates.confidence_score,
+          // Convert pain_scale from 0-10 to 0-1 if needed
+          pain_scale: updates.pain_scale && updates.pain_scale > 1
+            ? updates.pain_scale / 10
+            : updates.pain_scale,
+          // Convert pipe-separated strings to arrays for database
+          differential_diagnoses: updates.differential_diagnoses && typeof updates.differential_diagnoses === 'string'
+            ? updates.differential_diagnoses.split(' | ').map(d => d.trim()).filter(d => d.length > 0)
+            : updates.differential_diagnoses,
+          recommended_actions: updates.recommended_actions && typeof updates.recommended_actions === 'string'
+            ? updates.recommended_actions.split(' | ').map(a => a.trim()).filter(a => a.length > 0)
+            : updates.recommended_actions,
+          treatment: updates.treatment && typeof updates.treatment === 'string'
+            ? updates.treatment.split(' | ').map(t => t.trim()).filter(t => t.length > 0)
+            : updates.treatment
+        };
+
+        console.log('=== FIXED FIELDS ===');
+        console.log('Fixed confidence_score:', fixedUpdates.confidence_score);
+        console.log('Fixed pain_scale:', fixedUpdates.pain_scale);
+        console.log('Fixed differential_diagnoses:', fixedUpdates.differential_diagnoses);
+        console.log('Fixed recommended_actions:', fixedUpdates.recommended_actions);
+        console.log('Fixed treatment:', fixedUpdates.treatment);
+        console.log('=== END FIXED FIELDS ===');
+
         const { data, error } = await supabase
           .from('organization_diagnoses')
           .update({
-            ...updates,
+            ...fixedUpdates,
             updated_at: new Date().toISOString()
           })
           .eq('id', diagnosisId)

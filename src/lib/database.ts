@@ -48,7 +48,9 @@ export class DatabaseService {
       
       // Clinical details
       complaint_duration: formData.complaint_duration || null,
-      pain_scale: formData.pain_scale || null,
+      pain_scale: formData.pain_scale && formData.pain_scale > 1
+        ? formData.pain_scale / 10  // Convert 0-10 scale to 0-1 scale for database
+        : formData.pain_scale || null,
       symptom_onset: formData.symptom_onset || null,
       associated_symptoms: formData.associated_symptoms || null,
     };
@@ -94,6 +96,10 @@ export class DatabaseService {
       severity_level: parsedDiagnosis.severity_level,
       n8n_workflow_id: workflowId,
       n8n_response: n8nResponse,
+
+      // Enhanced AI response fields
+      clinical_assessment: parsedDiagnosis.clinical_assessment,
+      monitoring_plan: parsedDiagnosis.monitoring_plan,
     };
 
     console.log('Update data being sent to database:', updateData);
@@ -185,7 +191,9 @@ export class DatabaseService {
       respiratory_rate: editedData.respiratory_rate,
       oxygen_saturation: editedData.oxygen_saturation,
       complaint_duration: normalizeValue(editedData.complaint_duration),
-      pain_scale: editedData.pain_scale,
+      pain_scale: editedData.pain_scale && editedData.pain_scale > 1
+        ? editedData.pain_scale / 10  // Convert 0-10 scale to 0-1 scale for database
+        : editedData.pain_scale,
       symptom_onset: normalizeValue(editedData.symptom_onset),
       
       // Medical History
@@ -348,7 +356,13 @@ export class DatabaseService {
       additional_therapy: additionalTherapy,
       improved_patient_history: improvedPatientHistory,
       severity_level,
-      confidence_score: n8nResponse.confidence_score || 0.85, // Use provided or default
+      confidence_score: n8nResponse.confidence_score
+        ? (n8nResponse.confidence_score > 1 ? n8nResponse.confidence_score / 100 : n8nResponse.confidence_score)
+        : 0.85, // Convert percentage to decimal if needed
+
+      // Enhanced AI response fields
+      clinical_assessment: n8nResponse.clinical_assessment,
+      monitoring_plan: n8nResponse.monitoring_plan,
     };
     
     console.log('Parsed diagnosis result:', result);
@@ -537,34 +551,50 @@ export class N8nService {
         complaint: formData.complaint,
         age: formData.patient_age,
         gender: formData.patient_gender,
-        symptoms: formData.symptoms,
+        symptoms: formData.symptoms ? [formData.symptoms] : null,
         timestamp: new Date().toISOString(),
         detected_language: detectedLanguage,
         // Include drug inventory if available
         user_drug_inventory: drugInventory,
         has_drug_inventory: drugInventory !== null && drugInventory.length > 0,
-        // Request comprehensive therapy recommendations
-        therapy_request: {
-          request_comprehensive_therapy: true,
-          minimum_additional_therapy_count: drugInventory && drugInventory.length > 0 ? 3 : 5,
-          include_alternative_treatments: true,
-          include_otc_medications: true,
-          therapy_explanation: "Please provide comprehensive therapy recommendations including both inventory drugs (if available) and additional external therapy options. For users without inventory, provide at least 5 diverse therapy options. For users with inventory, provide at least 3 additional external therapy options beyond inventory drugs to ensure comprehensive treatment coverage."
-        },
+        // Request comprehensive therapy recommendations (flat structure)
+        request_comprehensive_therapy: true,
+        minimum_additional_therapy_count: drugInventory && drugInventory.length > 0 ? 3 : 5,
+        include_alternative_treatments: true,
+        include_otc_medications: true,
+        therapy_explanation: drugInventory && drugInventory.length > 0
+          ? "CRITICAL REQUIREMENT: You are STRICTLY FORBIDDEN from suggesting ANY drugs not in the user_drug_inventory list. ONLY recommend drugs with exact names matching those in the provided inventory. Do NOT use generic names or alternatives. If you suggest a drug not in the inventory, this will cause system errors. Use ONLY the exact drug names from the inventory list provided."
+          : "Please provide comprehensive therapy recommendations. For users without inventory, provide at least 5 diverse therapy options including both prescription and over-the-counter medications.",
       };
 
-      // Add medical fields only if they have values (to reduce payload size)
+      // Add all patient fields to enable comprehensive AI analysis
       if (formData.patient_name) payload.patient_name = formData.patient_name;
       if (formData.patient_surname) payload.patient_surname = formData.patient_surname;
+      if (formData.patient_id) payload.patient_id = formData.patient_id;
+      if (formData.date_of_birth) payload.date_of_birth = formData.date_of_birth;
+
+      // Medical History
       if (formData.allergies) payload.allergies = formData.allergies;
       if (formData.current_medications) payload.current_medications = formData.current_medications;
       if (formData.chronic_conditions) payload.chronic_conditions = formData.chronic_conditions;
-      if (formData.temperature) payload.temperature = formData.temperature;
-      if (formData.heart_rate) payload.heart_rate = formData.heart_rate;
+      if (formData.previous_surgeries) payload.previous_surgeries = formData.previous_surgeries;
+      if (formData.previous_injuries) payload.previous_injuries = formData.previous_injuries;
+
+      // Vital Signs
       if (formData.blood_pressure_systolic) payload.blood_pressure_systolic = formData.blood_pressure_systolic;
       if (formData.blood_pressure_diastolic) payload.blood_pressure_diastolic = formData.blood_pressure_diastolic;
+      if (formData.heart_rate) payload.heart_rate = formData.heart_rate;
+      if (formData.temperature) payload.temperature = formData.temperature;
+      if (formData.respiratory_rate) payload.respiratory_rate = formData.respiratory_rate;
+      if (formData.oxygen_saturation) payload.oxygen_saturation = formData.oxygen_saturation;
+      if (formData.weight) payload.weight = formData.weight;
+      if (formData.height) payload.height = formData.height;
+
+      // Symptom Details
       if (formData.complaint_duration) payload.complaint_duration = formData.complaint_duration;
       if (formData.pain_scale !== undefined && formData.pain_scale !== null) payload.pain_scale = formData.pain_scale;
+      if (formData.symptom_onset) payload.symptom_onset = formData.symptom_onset;
+      if (formData.associated_symptoms) payload.associated_symptoms = formData.associated_symptoms;
 
       console.log('Sending request to local API route:', this.API_ROUTE);
       console.log('Request payload size:', JSON.stringify(payload).length, 'characters');
@@ -580,6 +610,53 @@ export class N8nService {
         ...payload,
         user_drug_inventory: drugInventory?.length ? `[${drugInventory.length} items]` : drugInventory
       });
+
+      // Debug: Log all the fields being sent
+      console.log('=== FORM DATA DEBUG ===');
+      console.log('Form data received:', formData);
+      console.log('Symptoms processing:', {
+        original_symptoms: formData.symptoms,
+        processed_symptoms: payload.symptoms,
+        type_of_original: typeof formData.symptoms,
+        type_of_processed: typeof payload.symptoms,
+        is_array: Array.isArray(payload.symptoms)
+      });
+      console.log('Vital signs being sent:', {
+        blood_pressure_systolic: payload.blood_pressure_systolic,
+        blood_pressure_diastolic: payload.blood_pressure_diastolic,
+        heart_rate: payload.heart_rate,
+        temperature: payload.temperature,
+        respiratory_rate: payload.respiratory_rate,
+        oxygen_saturation: payload.oxygen_saturation,
+        weight: payload.weight,
+        height: payload.height
+      });
+      console.log('Medical history being sent:', {
+        allergies: payload.allergies,
+        current_medications: payload.current_medications,
+        chronic_conditions: payload.chronic_conditions,
+        previous_surgeries: payload.previous_surgeries,
+        previous_injuries: payload.previous_injuries
+      });
+      console.log('Patient details being sent:', {
+        patient_name: payload.patient_name,
+        patient_surname: payload.patient_surname,
+        patient_id: payload.patient_id,
+        date_of_birth: payload.date_of_birth
+      });
+      console.log('Numeric fields being sent:', {
+        confidence_score: payload.confidence_score,
+        pain_scale: payload.pain_scale,
+        temperature: payload.temperature,
+        heart_rate: payload.heart_rate,
+        blood_pressure_systolic: payload.blood_pressure_systolic,
+        blood_pressure_diastolic: payload.blood_pressure_diastolic,
+        respiratory_rate: payload.respiratory_rate,
+        oxygen_saturation: payload.oxygen_saturation,
+        weight: payload.weight,
+        height: payload.height
+      });
+      console.log('=== END FORM DATA DEBUG ===');
 
       const response = await fetch(this.API_ROUTE, {
         method: 'POST',

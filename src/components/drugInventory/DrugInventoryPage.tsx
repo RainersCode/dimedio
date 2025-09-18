@@ -25,10 +25,12 @@ export default function DrugInventoryPage() {
   const [currentMode, setCurrentMode] = useState<'individual' | 'organization'>('individual');
   const [loading, setLoading] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [stockFilter, setStockFilter] = useState<string>(''); // '', 'low_stock', 'out_of_stock'
   const [expiryFilter, setExpiryFilter] = useState<string>(''); // '', 'near_expiry', 'expired'
+  const [drugNameFilter, setDrugNameFilter] = useState<string>('');
+  const [priceMinFilter, setPriceMinFilter] = useState<string>('');
+  const [priceMaxFilter, setPriceMaxFilter] = useState<string>('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [editingDrug, setEditingDrug] = useState<UserDrugInventory | null>(null);
@@ -116,27 +118,6 @@ export default function DrugInventoryPage() {
     }
   }, [activeMode, organizationId]);
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) {
-      await loadData();
-      return;
-    }
-
-    setLoading(true);
-    const { data, error, mode } = await ModeAwareDrugInventoryService.searchDrugs(
-      searchQuery,
-      activeMode,
-      organizationId
-    );
-
-    if (error) {
-      setError(error);
-    } else {
-      setDrugs(data || []);
-      setCurrentMode(mode);
-    }
-    setLoading(false);
-  };
 
   const handleDeleteDrug = async (drugId: string) => {
     if (!confirm('Are you sure you want to remove this drug from your inventory?')) {
@@ -158,34 +139,18 @@ export default function DrugInventoryPage() {
 
   const handleDrugAdded = async () => {
     setShowAddModal(false);
-    // Refresh data while maintaining search state
-    if (searchQuery.trim()) {
-      await handleSearch();
-    } else {
-      await loadData();
-    }
+    await loadData();
   };
 
   const handleDrugUpdated = async () => {
     setEditingDrug(null);
-    // Refresh data while maintaining search state
-    if (searchQuery.trim()) {
-      await handleSearch();
-    } else {
-      await loadData();
-    }
+    await loadData();
   };
 
   const handleImportSuccess = async (importedCount: number) => {
     setShowImportModal(false);
     setSuccessMessage(`Successfully imported ${importedCount} drugs!`);
-
-    // Refresh data while maintaining search state
-    if (searchQuery.trim()) {
-      await handleSearch();
-    } else {
-      await loadData();
-    }
+    await loadData();
 
     // Clear success message after 5 seconds
     setTimeout(() => setSuccessMessage(null), 5000);
@@ -265,11 +230,18 @@ export default function DrugInventoryPage() {
   };
 
   const filteredDrugs = drugs.filter(drug => {
+    // Drug name filter (column filter)
+    if (drugNameFilter && !drug.drug_name?.toLowerCase().includes(drugNameFilter.toLowerCase()) &&
+        !drug.generic_name?.toLowerCase().includes(drugNameFilter.toLowerCase()) &&
+        !drug.brand_name?.toLowerCase().includes(drugNameFilter.toLowerCase())) {
+      return false;
+    }
+
     // Category filter
     if (selectedCategory && drug.category_id !== selectedCategory) {
       return false;
     }
-    
+
     // Stock filter
     if (stockFilter) {
       const stockStatus = getDrugStockStatus(drug);
@@ -283,12 +255,12 @@ export default function DrugInventoryPage() {
         return false;
       }
     }
-    
+
     // Expiry filter
     if (expiryFilter) {
       const nearExpiry = isNearExpiry(drug.expiry_date);
       const isExpired = drug.expiry_date && new Date(drug.expiry_date) < new Date();
-      
+
       if (expiryFilter === 'near_expiry' && !nearExpiry) {
         return false;
       }
@@ -299,7 +271,18 @@ export default function DrugInventoryPage() {
         return false;
       }
     }
-    
+
+    // Price filter
+    if (priceMinFilter || priceMaxFilter) {
+      const price = drug.unit_price || 0;
+      const minPrice = priceMinFilter ? parseFloat(priceMinFilter) : 0;
+      const maxPrice = priceMaxFilter ? parseFloat(priceMaxFilter) : Infinity;
+
+      if (price < minPrice || price > maxPrice) {
+        return false;
+      }
+    }
+
     return true;
   });
 
@@ -329,15 +312,13 @@ export default function DrugInventoryPage() {
     setSelectedCategory('');
     setStockFilter('');
     setExpiryFilter('');
-    setSearchQuery('');
+    setDrugNameFilter('');
+    setPriceMinFilter('');
+    setPriceMaxFilter('');
     setCurrentPage(1);
     loadData(); // Reset to original data
   };
 
-  const handleSearchSubmit = async () => {
-    setCurrentPage(1);
-    await handleSearch();
-  };
 
   if (loading) {
     return (
@@ -446,94 +427,9 @@ export default function DrugInventoryPage() {
           </div>
         )}
 
-        {/* Controls */}
+        {/* Action Buttons */}
         <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
-          <div className="flex flex-col gap-4">
-            {/* Search Row */}
-            <div className="flex flex-col lg:flex-row gap-4 items-end">
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Search Drugs</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by drug name, generic name, or brand..."
-                    className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                    onKeyPress={(e) => e.key === 'Enter' && handleSearchSubmit()}
-                  />
-                  <button
-                    onClick={handleSearchSubmit}
-                    className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors"
-                  >
-                    Search
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Filters Row */}
-            <div className="flex flex-col lg:flex-row gap-4 items-end">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Category</label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => handleCategoryChange(e.target.value)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                >
-                  <option value="">All Categories</option>
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Stock Status</label>
-                <select
-                  value={stockFilter}
-                  onChange={(e) => handleStockFilterChange(e.target.value)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                >
-                  <option value="">All Stock Levels</option>
-                  <option value="low_or_out">Low/Out of Stock</option>
-                  <option value="low_stock">Low Stock Only</option>
-                  <option value="out_of_stock">Out of Stock Only</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Expiry Status</label>
-                <select
-                  value={expiryFilter}
-                  onChange={(e) => handleExpiryFilterChange(e.target.value)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                >
-                  <option value="">All Expiry Dates</option>
-                  <option value="near_or_expired">Near Expiry/Expired</option>
-                  <option value="near_expiry">Near Expiry Only</option>
-                  <option value="expired">Expired Only</option>
-                </select>
-              </div>
-
-              <div>
-                <button
-                  onClick={clearAllFilters}
-                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors flex items-center"
-                  title="Clear all filters"
-                >
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  Clear Filters
-                </button>
-              </div>
-            </div>
-
-            {/* Action Buttons Row */}
-            <div className="flex justify-end">
+          <div className="flex justify-end">
             <div className="flex gap-2">
               <ManageInventoryGuard fallback={null} showError={false}>
                 <button
@@ -606,9 +502,55 @@ export default function DrugInventoryPage() {
                 </button>
               </ManageInventoryGuard>
             </div>
-            </div>
           </div>
         </div>
+
+        {/* Active Filters Indicator */}
+        {(drugNameFilter || selectedCategory || stockFilter || expiryFilter || priceMinFilter || priceMaxFilter) && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+                </svg>
+                <span className="text-sm font-medium text-blue-900">Active Filters:</span>
+                <div className="flex flex-wrap gap-1">
+                  {drugNameFilter && (
+                    <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                      Name: "{drugNameFilter}"
+                    </span>
+                  )}
+                  {selectedCategory && (
+                    <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                      Category: {categories.find(c => c.id === selectedCategory)?.name}
+                    </span>
+                  )}
+                  {stockFilter && (
+                    <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                      Stock: {stockFilter === 'low_or_out' ? 'Low/Out' : stockFilter === 'low_stock' ? 'Low' : 'Out'}
+                    </span>
+                  )}
+                  {expiryFilter && (
+                    <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                      Expiry: {expiryFilter === 'near_or_expired' ? 'Near/Expired' : expiryFilter === 'near_expiry' ? 'Near' : 'Expired'}
+                    </span>
+                  )}
+                  {(priceMinFilter || priceMaxFilter) && (
+                    <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                      Price: €{priceMinFilter || '0'} - €{priceMaxFilter || '∞'}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={clearAllFilters}
+                className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+              >
+                Clear All
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Drug List */}
         <div className="bg-white rounded-lg shadow-sm border border-slate-200">
@@ -630,6 +572,7 @@ export default function DrugInventoryPage() {
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
+                  {/* Column Headers */}
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Drug</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Category</th>
@@ -637,6 +580,102 @@ export default function DrugInventoryPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Expiry</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Price</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                  {/* Filter Row */}
+                  <tr className="bg-slate-25">
+                    <th className="px-6 py-2">
+                      <input
+                        type="text"
+                        placeholder="Filter by name..."
+                        value={drugNameFilter}
+                        onChange={(e) => {
+                          setDrugNameFilter(e.target.value);
+                          setCurrentPage(1);
+                        }}
+                        className="w-full text-xs px-2 py-1 border border-slate-300 rounded focus:ring-1 focus:ring-emerald-500 focus:border-transparent"
+                      />
+                    </th>
+                    <th className="px-6 py-2">
+                      <select
+                        value={selectedCategory}
+                        onChange={(e) => {
+                          handleCategoryChange(e.target.value);
+                        }}
+                        className="w-full text-xs px-2 py-1 border border-slate-300 rounded focus:ring-1 focus:ring-emerald-500 focus:border-transparent"
+                      >
+                        <option value="">All Categories</option>
+                        {categories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </select>
+                    </th>
+                    <th className="px-6 py-2">
+                      <select
+                        value={stockFilter}
+                        onChange={(e) => {
+                          handleStockFilterChange(e.target.value);
+                        }}
+                        className="w-full text-xs px-2 py-1 border border-slate-300 rounded focus:ring-1 focus:ring-emerald-500 focus:border-transparent"
+                      >
+                        <option value="">All Stock</option>
+                        <option value="low_or_out">Low/Out</option>
+                        <option value="low_stock">Low Only</option>
+                        <option value="out_of_stock">Out Only</option>
+                      </select>
+                    </th>
+                    <th className="px-6 py-2">
+                      <select
+                        value={expiryFilter}
+                        onChange={(e) => {
+                          handleExpiryFilterChange(e.target.value);
+                        }}
+                        className="w-full text-xs px-2 py-1 border border-slate-300 rounded focus:ring-1 focus:ring-emerald-500 focus:border-transparent"
+                      >
+                        <option value="">All Expiry</option>
+                        <option value="near_or_expired">Near/Expired</option>
+                        <option value="near_expiry">Near Only</option>
+                        <option value="expired">Expired Only</option>
+                      </select>
+                    </th>
+                    <th className="px-6 py-2">
+                      <div className="flex gap-1">
+                        <input
+                          type="number"
+                          placeholder="Min €"
+                          value={priceMinFilter}
+                          onChange={(e) => {
+                            setPriceMinFilter(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          className="w-full text-xs px-2 py-1 border border-slate-300 rounded focus:ring-1 focus:ring-emerald-500 focus:border-transparent"
+                          step="0.01"
+                          min="0"
+                        />
+                        <input
+                          type="number"
+                          placeholder="Max €"
+                          value={priceMaxFilter}
+                          onChange={(e) => {
+                            setPriceMaxFilter(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          className="w-full text-xs px-2 py-1 border border-slate-300 rounded focus:ring-1 focus:ring-emerald-500 focus:border-transparent"
+                          step="0.01"
+                          min="0"
+                        />
+                      </div>
+                    </th>
+                    <th className="px-6 py-2 text-right">
+                      <button
+                        onClick={clearAllFilters}
+                        className="text-xs px-2 py-1 bg-slate-600 text-white rounded hover:bg-slate-700 transition-colors"
+                        title="Clear all filters"
+                      >
+                        Clear
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
@@ -869,6 +908,8 @@ export default function DrugInventoryPage() {
           categories={categories}
           onClose={() => setShowImportModal(false)}
           onSuccess={handleImportSuccess}
+          activeMode={activeMode}
+          organizationId={organizationId}
         />
       )}
 

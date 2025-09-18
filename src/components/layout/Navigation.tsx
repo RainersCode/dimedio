@@ -50,10 +50,16 @@ export default function Navigation() {
   const checkUndispensedMeds = useCallback(async () => {
     if (user) {
       try {
-        const { hasAnyUndispensed } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications(
+        console.log('🔍 Navigation: Checking for undispensed medications...', { activeMode, organizationId });
+        const { hasAnyUndispensed, patients, totalUndispensedCount } = await UndispensedMedicationsService.getPatientsWithUndispensedMedications(
           activeMode,
           organizationId
         );
+        console.log('🔍 Navigation: Undispensed medications check result:', {
+          hasAnyUndispensed,
+          patientsCount: patients.length,
+          totalUndispensedCount
+        });
         setHasUndispensedMeds(hasAnyUndispensed);
       } catch (error) {
         console.error('Error checking undispensed medications:', error);
@@ -79,7 +85,10 @@ export default function Navigation() {
   }, [checkUndispensedMeds]);
 
   // Listen for refresh events
-  useUndispensedMedicationsRefresh(checkUndispensedMeds);
+  useUndispensedMedicationsRefresh(() => {
+    console.log('🔔 Navigation: Received undispensed medications refresh event');
+    checkUndispensedMeds();
+  });
 
   // Close dropdown when clicking outside
   useEffect(() => {

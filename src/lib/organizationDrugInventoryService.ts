@@ -23,7 +23,10 @@ export class OrganizationDrugInventoryService {
 
       const { data, error } = await supabase
         .from('organization_drug_inventory')
-        .select('*')
+        .select(`
+          *,
+          category:drug_categories(*)
+        `)
         .eq('organization_id', targetOrgId)
         .eq('is_active', true)
         .order('drug_name', { ascending: true });
@@ -180,7 +183,10 @@ export class OrganizationDrugInventoryService {
 
       const { data, error } = await supabase
         .from('organization_drug_inventory')
-        .select('*')
+        .select(`
+          *,
+          category:drug_categories(*)
+        `)
         .eq('organization_id', targetOrgId)
         .eq('is_active', true)
         .or(
@@ -320,7 +326,7 @@ export class OrganizationDrugInventoryService {
         .from('organization_drug_usage_history')
         .select(`
           *,
-          drug:organization_drug_inventory(*),
+          drug:organization_drug_inventory(*,category:drug_categories(*)),
           diagnosis:organization_diagnoses(id, patient_name, primary_diagnosis)
         `)
         .eq('organization_id', targetOrgId)
@@ -361,7 +367,10 @@ export class OrganizationDrugInventoryService {
 
       const { data, error } = await supabase
         .from('organization_drug_inventory')
-        .select('*')
+        .select(`
+          *,
+          category:drug_categories(*)
+        `)
         .eq('organization_id', targetOrgId)
         .eq('is_active', true)
         .lte('stock_quantity', threshold)

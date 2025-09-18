@@ -257,6 +257,14 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       } else if (savedPatient) {
         setPatientSaved(true);
         setTimeout(() => setPatientSaved(false), 3000); // Reset after 3 seconds
+
+        // Trigger refresh of undispensed medications indicators since we saved a new patient with diagnoses
+        // Add delay to ensure database operations are fully complete
+        console.log('🔔 Triggering undispensed medications refresh after patient save...');
+        setTimeout(() => {
+          console.log('🔔 Executing undispensed medications refresh now');
+          triggerUndispensedMedicationsRefresh();
+        }, 500);
       }
     } catch (err) {
       setError('Failed to save patient profile');
@@ -570,7 +578,10 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
   // Helper function to find matching inventory drug (same logic as in individual dispensing)
   const findMatchingInventoryDrug = (drugName: string) => {
-    return userDrugInventory?.find(invDrug => {
+    console.log(`🔍 Searching for drug: "${drugName}" in inventory of ${userDrugInventory?.length || 0} items`);
+    console.log('🔍 Available inventory drugs:', userDrugInventory?.map(d => d.drug_name).slice(0, 10));
+
+    const match = userDrugInventory?.find(invDrug => {
       const normalizeName = (name: string) => name?.toLowerCase().replace(/\s+/g, ' ').trim() || '';
       const normalizeForMatching = (name: string) => {
         return normalizeName(name)
@@ -581,17 +592,29 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           .replace(/\bmg\/\d+\s*mg\b/gi, 'mg') // Normalize dosage like "500 mg/125 mg" to "500mg"
           .replace(/\s+/g, ' ').trim();
       };
-      
+
       const invDrugNormalized = normalizeForMatching(invDrug.drug_name);
       const diagnosisDrugNormalized = normalizeForMatching(drugName);
-      
-      return (
+
+      const isMatch = (
         normalizeName(invDrug.drug_name) === normalizeName(drugName) ||
         invDrugNormalized === diagnosisDrugNormalized ||
         (invDrugNormalized.includes(diagnosisDrugNormalized) && diagnosisDrugNormalized.length > 5) ||
         (diagnosisDrugNormalized.includes(invDrugNormalized) && invDrugNormalized.length > 5)
       );
+
+      if (isMatch) {
+        console.log(`✅ Found match: "${invDrug.drug_name}" matches "${drugName}"`);
+      }
+
+      return isMatch;
     });
+
+    if (!match) {
+      console.log(`❌ No match found for "${drugName}"`);
+    }
+
+    return match;
   };
 
   // Drug search and autocomplete functions
@@ -797,7 +820,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         previous_injuries: formData.previous_injuries?.trim() || null,
         complaint_duration: formData.complaint_duration?.trim() || null,
         associated_symptoms: formData.associated_symptoms?.trim() || null,
-        symptoms: formData.symptoms?.trim() || null,
+        symptoms: formData.symptoms?.trim() ? [formData.symptoms.trim()] : null,
         symptom_onset: formData.symptom_onset?.trim() || null
       };
 
@@ -812,20 +835,41 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         throw new Error(dbError || 'Failed to create diagnosis');
       }
 
-      // 2. Send to n8n for AI analysis with current drug inventory
+      // 2. Ensure we have the correct drug inventory for the current mode before sending to N8N
+      let currentInventoryForAI = userDrugInventory;
+
+      // Fetch fresh inventory to ensure we're using the correct mode's inventory
+      try {
+        const { data: freshInventory, error: inventoryError, mode } = await ModeAwareDrugInventoryService.getDrugInventory(activeMode, organizationId);
+        if (!inventoryError && freshInventory) {
+          currentInventoryForAI = freshInventory;
+          console.log('✅ Using fresh inventory for AI analysis:', {
+            mode,
+            organizationId,
+            count: freshInventory.length,
+            sample: freshInventory.slice(0, 3).map(d => d.drug_name)
+          });
+        } else {
+          console.warn('⚠️ Could not fetch fresh inventory, using cached:', inventoryError);
+        }
+      } catch (inventoryError) {
+        console.warn('⚠️ Error fetching fresh inventory for AI, using cached:', inventoryError);
+      }
+
+      // 3. Send to n8n for AI analysis with correct drug inventory
       console.log('🔍 Debug: Preparing payload for AI analysis', {
         activeMode,
         organizationId,
         currentMode,
-        userDrugInventoryLength: userDrugInventory?.length || 0,
-        userDrugInventoryItems: userDrugInventory?.slice(0, 3).map(d => d.drug_name) || [],
-        has_drug_inventory: userDrugInventory && userDrugInventory.length > 0
+        inventoryLength: currentInventoryForAI?.length || 0,
+        inventoryItems: currentInventoryForAI?.slice(0, 3).map(d => d.drug_name) || [],
+        has_drug_inventory: currentInventoryForAI && currentInventoryForAI.length > 0
       });
 
       const payloadWithInventory = {
         ...cleanedFormData,
-        user_drug_inventory: userDrugInventory,
-        has_drug_inventory: userDrugInventory && userDrugInventory.length > 0,
+        user_drug_inventory: currentInventoryForAI,
+        has_drug_inventory: currentInventoryForAI && currentInventoryForAI.length > 0,
         current_mode: currentMode
       };
       const { data: n8nResponse, error: n8nError } = await N8nService.sendDiagnosisRequest(payloadWithInventory);
@@ -838,14 +882,23 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         // Still create patient profile even if AI analysis fails
         try {
           await ModeAwarePatientService.savePatientFromDiagnosis(diagnosis, activeMode, organizationId);
+          // Trigger refresh of undispensed medications indicators since we saved a new patient with diagnoses
+          console.log('🔔 Triggering undispensed medications refresh after patient save (n8n error case)...');
+          setTimeout(() => {
+            console.log('🔔 Executing undispensed medications refresh now (n8n error case)');
+            triggerUndispensedMedicationsRefresh();
+          }, 500);
         } catch (patientError) {
           console.warn('Failed to create patient profile after n8n error:', patientError);
         }
 
         onDiagnosisComplete?.(diagnosis.id);
 
-        // Trigger refresh even after n8n failure (with small delay to ensure DB operations complete)
-        setTimeout(triggerUndispensedMedicationsRefresh, 100);
+        // Trigger refresh even after n8n failure (with delay to ensure DB operations complete)
+        setTimeout(() => {
+          console.log('🔔 Final refresh trigger after n8n failure');
+          triggerUndispensedMedicationsRefresh();
+        }, 1000);
 
         return;
       }
@@ -874,9 +927,15 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
       // Create patient profile so patient appears in patient list immediately
       try {
-        // Use the final diagnosis (either original or updated) for patient creation
-        const finalDiagnosis = updatedDiagnosis || diagnosis;
+        // Use the diagnosis with AI results for patient creation
+        const finalDiagnosis = diagnosisResult;
         await ModeAwarePatientService.savePatientFromDiagnosis(finalDiagnosis, activeMode, organizationId);
+        // Trigger refresh of undispensed medications indicators since we saved a new patient with diagnoses
+        console.log('🔔 Triggering undispensed medications refresh after patient save (success case)...');
+        setTimeout(() => {
+          console.log('🔔 Executing undispensed medications refresh now (success case)');
+          triggerUndispensedMedicationsRefresh();
+        }, 500);
       } catch (patientError) {
         console.warn('Failed to create patient profile:', patientError);
         // Don't fail the whole process if patient creation fails
@@ -884,8 +943,11 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
       onDiagnosisComplete?.(diagnosis.id);
 
-      // Trigger immediate refresh of undispensed medications indicators after patient creation (with small delay to ensure DB operations complete)
-      setTimeout(triggerUndispensedMedicationsRefresh, 100);
+      // Trigger immediate refresh of undispensed medications indicators after patient creation (with delay to ensure DB operations complete)
+      setTimeout(() => {
+        console.log('🔔 Final refresh trigger after successful diagnosis');
+        triggerUndispensedMedicationsRefresh();
+      }, 1000);
 
     } catch (err) {
       console.error('Diagnosis error:', err);

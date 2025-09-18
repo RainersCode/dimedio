@@ -2,12 +2,17 @@
 
 import { useState, useRef } from 'react';
 import { DrugInventoryService } from '@/lib/drugInventory';
+import { OrganizationDrugInventoryService } from '@/lib/organizationDrugInventoryService';
+import { OrganizationService } from '@/lib/organizationService';
+import { supabase } from '@/lib/supabase';
 import type { DrugCategory, DrugInventoryFormData } from '@/types/database';
 
 interface ImportDrugsModalProps {
   categories: DrugCategory[];
   onClose: () => void;
   onSuccess: (importedCount: number) => void;
+  activeMode?: 'individual' | 'organization';
+  organizationId?: string | null;
 }
 
 interface JsonDrug {
@@ -164,7 +169,7 @@ const parseExcelFile = async (file: File): Promise<JsonDrug[]> => {
   });
 };
 
-export default function ImportDrugsModal({ categories, onClose, onSuccess }: ImportDrugsModalProps) {
+export default function ImportDrugsModal({ categories, onClose, onSuccess, activeMode, organizationId }: ImportDrugsModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<JsonDrug[]>([]);
@@ -345,38 +350,61 @@ export default function ImportDrugsModal({ categories, onClose, onSuccess }: Imp
 
     const total = previewData.length;
 
-    for (let i = 0; i < previewData.length; i++) {
-      const jsonDrug = previewData[i];
-      const currentIndex = i + 1;
-      const percentage = Math.round((currentIndex / total) * 100);
-
-      // Update progress
-      setImportProgress({
-        current: currentIndex,
-        total: total,
-        percentage: percentage,
-        currentDrug: jsonDrug.name
+    try {
+      // Use the context-provided mode instead of detecting it
+      const isOrganizationMode = activeMode === 'organization' && organizationId;
+      console.log('Import mode from context:', isOrganizationMode ? 'organization' : 'individual', {
+        activeMode,
+        organizationId,
+        isOrganizationMode
       });
-      
-      try {
-        const formData = mapJsonDrugToFormData(jsonDrug);
-        const { error } = await DrugInventoryService.addDrugToInventory(formData);
-        
-        if (error) {
-          results.failed++;
-          results.errors.push(`${jsonDrug.name}: ${error}`);
-        } else {
-          results.successful++;
-        }
-      } catch (err) {
-        results.failed++;
-        results.errors.push(`${jsonDrug.name}: Failed to import`);
-      }
 
-      // Add a small delay to avoid overwhelming the database and allow UI updates
-      if (i % 5 === 0) {
-        await new Promise(resolve => setTimeout(resolve, 50));
+      for (let i = 0; i < previewData.length; i++) {
+        const jsonDrug = previewData[i];
+        const currentIndex = i + 1;
+        const percentage = Math.round((currentIndex / total) * 100);
+
+        // Update progress
+        setImportProgress({
+          current: currentIndex,
+          total: total,
+          percentage: percentage,
+          currentDrug: jsonDrug.name
+        });
+
+        try {
+          const formData = mapJsonDrugToFormData(jsonDrug);
+
+          // Call the appropriate service directly based on context mode
+          let result;
+          if (isOrganizationMode && organizationId) {
+            // Import to organization inventory
+            result = await OrganizationDrugInventoryService.addDrugToOrganizationInventory(formData, organizationId);
+          } else {
+            // Import to individual inventory (fallback to original method)
+            result = await DrugInventoryService.addDrugToInventory(formData);
+          }
+
+          if (result.error) {
+            results.failed++;
+            results.errors.push(`${jsonDrug.name}: ${result.error}`);
+          } else {
+            results.successful++;
+          }
+        } catch (err) {
+          results.failed++;
+          results.errors.push(`${jsonDrug.name}: Failed to import - ${err instanceof Error ? err.message : 'Unknown error'}`);
+        }
+
+        // Add a small delay to avoid overwhelming the database and allow UI updates
+        if (i % 5 === 0) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
       }
+    } catch (error) {
+      setError(`Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setLoading(false);
+      return;
     }
 
     // Clear progress and show results
