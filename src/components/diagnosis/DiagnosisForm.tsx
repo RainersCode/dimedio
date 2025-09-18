@@ -16,6 +16,7 @@ import { CreditsService } from '@/lib/credits';
 import { triggerUndispensedMedicationsRefresh } from '@/hooks/useUndispensedMedicationsRefresh';
 import DiagnosisDebug from './DiagnosisDebug';
 import { DiagnosisExportDropdown } from './DiagnosisExportButtons';
+import PatientSelector from './PatientSelector';
 
 interface DiagnosisFormProps {
   onDiagnosisComplete?: (diagnosisId: string) => void;
@@ -103,11 +104,56 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     clinicalDetails: false,
   });
 
+  // Selected patient state
+  const [selectedPatient, setSelectedPatient] = useState<{
+    id: string;
+    patient_name: string;
+    patient_surname: string;
+    patient_id: string;
+    date_of_birth?: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    emergency_contact?: string;
+    allergies?: string;
+    chronic_conditions?: string;
+    insurance_info?: string;
+  } | null>(null);
+
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections(prev => ({
       ...prev,
       [section]: !prev[section]
     }));
+  };
+
+  // Handle patient selection
+  const handlePatientSelect = (patient: typeof selectedPatient) => {
+    setSelectedPatient(patient);
+
+    if (patient) {
+      // Update form data with patient information
+      setFormData(prev => ({
+        ...prev,
+        patient_name: patient.patient_name,
+        patient_surname: patient.patient_surname,
+        patient_id: patient.patient_id,
+        date_of_birth: patient.date_of_birth || '',
+        // You can also populate other fields if needed
+        allergies: patient.allergies || prev.allergies,
+        chronic_conditions: patient.chronic_conditions || prev.chronic_conditions,
+      }));
+    } else {
+      // Clear patient data for anonymous diagnosis
+      setFormData(prev => ({
+        ...prev,
+        patient_name: '',
+        patient_surname: '',
+        patient_id: '',
+        date_of_birth: '',
+        // Optionally clear allergies and chronic_conditions or keep them
+      }));
+    }
   };
 
   // Load drug inventory when mode changes
@@ -2545,53 +2591,12 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           
           {expandedSections.patientDetails && (
             <div className="px-6 pb-6 border-t border-slate-200">
-              <div className="grid md:grid-cols-2 gap-4 mt-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Patient Name</label>
-                  <input
-                    type="text"
-                    name="patient_name"
-                    value={formData.patient_name || ''}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                    placeholder="First name"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Patient Surname</label>
-                  <input
-                    type="text"
-                    name="patient_surname"
-                    value={formData.patient_surname || ''}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                    placeholder="Last name"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Patient ID</label>
-                  <input
-                    type="text"
-                    name="patient_id"
-                    value={formData.patient_id || ''}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                    placeholder="Medical record number"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Date of Birth</label>
-                  <input
-                    type="date"
-                    name="date_of_birth"
-                    value={formData.date_of_birth || ''}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                  />
-                </div>
+              <div className="mt-4">
+                <PatientSelector
+                  selectedPatient={selectedPatient}
+                  onPatientSelect={handlePatientSelect}
+                  onError={setError}
+                />
               </div>
             </div>
           )}

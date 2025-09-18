@@ -559,12 +559,12 @@ export class N8nService {
         has_drug_inventory: drugInventory !== null && drugInventory.length > 0,
         // Request comprehensive therapy recommendations (flat structure)
         request_comprehensive_therapy: true,
-        minimum_additional_therapy_count: drugInventory && drugInventory.length > 0 ? 3 : 5,
+        minimum_additional_therapy_count: 5,
         include_alternative_treatments: true,
         include_otc_medications: true,
         therapy_explanation: drugInventory && drugInventory.length > 0
-          ? "CRITICAL REQUIREMENT: You are STRICTLY FORBIDDEN from suggesting ANY drugs not in the user_drug_inventory list. ONLY recommend drugs with exact names matching those in the provided inventory. Do NOT use generic names or alternatives. If you suggest a drug not in the inventory, this will cause system errors. Use ONLY the exact drug names from the inventory list provided."
-          : "Please provide comprehensive therapy recommendations. For users without inventory, provide at least 5 diverse therapy options including both prescription and over-the-counter medications.",
+          ? "IMPORTANT DUAL REQUIREMENT: 1) For 'inventory_drugs' field: ONLY recommend drugs with exact names matching the user_drug_inventory list provided. Use exact drug names from inventory. 2) For 'additional_therapy' field: Provide 5-8 comprehensive external treatment options including both prescription and over-the-counter medications that would be ideal for this condition, regardless of inventory availability. These external suggestions should represent best-practice medical treatment options that the doctor should consider prescribing or recommending to the patient."
+          : "Please provide comprehensive therapy recommendations in the 'additional_therapy' field. Provide at least 5 diverse therapy options including both prescription and over-the-counter medications that represent best medical practice for this condition.",
       };
 
       // Add all patient fields to enable comprehensive AI analysis

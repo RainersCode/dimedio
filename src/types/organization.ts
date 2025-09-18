@@ -85,6 +85,12 @@ export interface OrganizationPatient {
   patient_gender?: string;
   patient_id?: string;
   date_of_birth?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  emergency_contact?: string;
+  insurance_info?: string;
+  chronic_conditions?: string;
   medical_history?: string[];
   allergies?: string[];
   current_medications?: string[];

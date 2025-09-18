@@ -752,4 +752,100 @@ export class ModeAwarePatientService {
       return { data: null, error: 'Failed to save patient profile' };
     }
   }
+
+  // Create a new patient based on active mode
+  static async createPatient(
+    patientData: {
+      patient_name: string;
+      patient_surname: string;
+      patient_id: string;
+      date_of_birth?: string;
+      phone?: string;
+      email?: string;
+      address?: string;
+      emergency_contact?: string;
+      allergies?: string;
+      chronic_conditions?: string;
+      insurance_info?: string;
+    },
+    activeMode: UserWorkingMode,
+    organizationId?: string | null
+  ): Promise<{
+    data: (PatientProfile | OrganizationPatient) | null;
+    error: string | null;
+    mode: 'individual' | 'organization';
+  }> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { data: null, error: 'User not authenticated', mode: 'individual' };
+    }
+
+    try {
+      if (activeMode === 'organization' && organizationId) {
+        // Create organization patient
+        const sanitizedData = {
+          organization_id: organizationId,
+          patient_name: patientData.patient_name,
+          patient_surname: patientData.patient_surname,
+          patient_id: patientData.patient_id,
+          date_of_birth: patientData.date_of_birth || null,
+          phone: patientData.phone || null,
+          email: patientData.email || null,
+          address: patientData.address || null,
+          emergency_contact: patientData.emergency_contact || null,
+          allergies: patientData.allergies || null,
+          chronic_conditions: patientData.chronic_conditions || null,
+          insurance_info: patientData.insurance_info || null,
+          created_by: user.id,
+          updated_by: user.id
+        };
+
+        const { data, error } = await supabase
+          .from('organization_patients')
+          .insert([sanitizedData])
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Error creating organization patient:', error);
+          return { data: null, error: error.message, mode: 'organization' };
+        }
+
+        return { data, error: null, mode: 'organization' };
+      } else {
+        // Create individual patient
+        const sanitizedData = {
+          user_id: user.id,
+          patient_name: patientData.patient_name,
+          patient_surname: patientData.patient_surname,
+          patient_id: patientData.patient_id,
+          date_of_birth: patientData.date_of_birth || null,
+          phone: patientData.phone || null,
+          email: patientData.email || null,
+          address: patientData.address || null,
+          emergency_contact: patientData.emergency_contact || null,
+          allergies: patientData.allergies || null,
+          chronic_conditions: patientData.chronic_conditions || null,
+          insurance_info: patientData.insurance_info || null
+        };
+
+        const { data, error } = await supabase
+          .from('patient_profiles')
+          .insert([sanitizedData])
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Error creating individual patient:', error);
+          return { data: null, error: error.message, mode: 'individual' };
+        }
+
+        return { data, error: null, mode: 'individual' };
+      }
+    } catch (error) {
+      console.error('Error creating patient:', error);
+      return { data: null, error: 'Failed to create patient', mode: 'individual' };
+    }
+  }
 }
