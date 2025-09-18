@@ -278,7 +278,7 @@ export default function AddDrugModal({ categories, onClose, onSuccess }: AddDrug
             
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Stock Quantity</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Stock Quantity (Packs)</label>
                 <input
                   type="number"
                   min="0"
@@ -286,6 +286,7 @@ export default function AddDrugModal({ categories, onClose, onSuccess }: AddDrug
                   onChange={(e) => setFormData(prev => ({ ...prev, stock_quantity: parseInt(e.target.value) || 0 }))}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 />
+                <p className="text-xs text-slate-500 mt-1">Number of whole packs (for backward compatibility)</p>
               </div>
 
               <div>
@@ -299,6 +300,90 @@ export default function AddDrugModal({ categories, onClose, onSuccess }: AddDrug
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 />
               </div>
+            </div>
+
+            {/* Pack Tracking Section */}
+            <div className="border-t border-slate-200 pt-4">
+              <h4 className="text-md font-medium text-slate-900 mb-3">Pack Tracking (Recommended)</h4>
+              <p className="text-sm text-slate-600 mb-4">
+                Configure pack sizes for precise individual unit dispensing (e.g., dispense 4 tablets instead of whole packs)
+              </p>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Units per Pack</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={formData.units_per_pack || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, units_per_pack: parseInt(e.target.value) || undefined }))}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder="e.g., 20, 30, 100"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">How many individual units in one pack</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Unit Type</label>
+                  <select
+                    value={formData.unit_type || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, unit_type: e.target.value as any }))}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  >
+                    <option value="">Select unit type</option>
+                    <option value="tablet">Tablet</option>
+                    <option value="capsule">Capsule</option>
+                    <option value="ml">Milliliter (ml)</option>
+                    <option value="dose">Dose</option>
+                    <option value="patch">Patch</option>
+                    <option value="suppository">Suppository</option>
+                    <option value="gram">Gram</option>
+                  </select>
+                  <p className="text-xs text-slate-500 mt-1">Type of individual unit</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Whole Packs Count</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.whole_packs_count !== undefined ? formData.whole_packs_count : ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, whole_packs_count: parseInt(e.target.value) || undefined }))}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder="e.g., 5"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Number of unopened packs</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Loose Units Count</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max={formData.units_per_pack ? formData.units_per_pack - 1 : undefined}
+                    value={formData.loose_units_count !== undefined ? formData.loose_units_count : ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, loose_units_count: parseInt(e.target.value) || undefined }))}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder="e.g., 3"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Individual units from opened packs</p>
+                </div>
+              </div>
+
+              {/* Total Units Display */}
+              {formData.units_per_pack && (formData.whole_packs_count !== undefined || formData.loose_units_count !== undefined) && (
+                <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                  <p className="text-sm font-medium text-emerald-800">
+                    Total Available: {((formData.whole_packs_count || 0) * formData.units_per_pack) + (formData.loose_units_count || 0)} {formData.unit_type || 'units'}
+                  </p>
+                  <p className="text-xs text-emerald-600">
+                    {formData.whole_packs_count || 0} packs + {formData.loose_units_count || 0} loose {formData.unit_type || 'units'}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Supplier</label>

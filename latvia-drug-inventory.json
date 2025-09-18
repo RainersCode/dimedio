@@ -13,7 +13,11 @@
     "stock_quantity": 156,
     "prescription_required": true,
     "description": "Store in cool, dry place",
-    "expiry_date": "2026-05-31"
+    "expiry_date": "2026-05-31",
+    "units_per_pack": 20,
+    "unit_type": "capsule",
+    "whole_packs_count": 156,
+    "loose_units_count": 6
   },
   {
     "name": "Atorvastatin",
@@ -29,7 +33,11 @@
     "stock_quantity": 89,
     "prescription_required": true,
     "description": "Monitor liver function tests",
-    "expiry_date": "2027-12-31"
+    "expiry_date": "2027-12-31",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 0
   },
   {
     "name": "Acetylsalicylic acid",
@@ -45,7 +53,11 @@
     "stock_quantity": 245,
     "prescription_required": false,
     "description": "Take with food",
-    "expiry_date": "2028-06-30"
+    "expiry_date": "2028-06-30",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 245,
+    "loose_units_count": 4
   },
   {
     "name": "Azithromycin",
@@ -61,7 +73,11 @@
     "stock_quantity": 52,
     "prescription_required": true,
     "description": "Z-pack 5-day course",
-    "expiry_date": "2026-05-31"
+    "expiry_date": "2026-05-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 52,
+    "loose_units_count": 6
   },
   {
     "name": "Cetirizine",
@@ -77,7 +93,11 @@
     "stock_quantity": 178,
     "prescription_required": false,
     "description": "May cause drowsiness",
-    "expiry_date": "2028-03-31"
+    "expiry_date": "2028-03-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 178,
+    "loose_units_count": 6
   },
   {
     "name": "Clopidogrel",
@@ -93,7 +113,11 @@
     "prescription_required": true,
     "description": "Monitor for bleeding",
     "category": "Cardiovascular",
-    "expiry_date": "2027-10-31"
+    "expiry_date": "2027-10-31",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 8
   },
   {
     "name": "Diclofenac",
@@ -109,7 +133,11 @@
     "prescription_required": true,
     "description": "Take with food",
     "category": "Anti-inflammatory",
-    "expiry_date": "2027-11-30"
+    "expiry_date": "2027-11-30",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 134,
+    "loose_units_count": 1
   },
   {
     "name": "Doxycycline",
@@ -125,7 +153,11 @@
     "prescription_required": true,
     "description": "Avoid dairy products",
     "category": "Antibiotics",
-    "expiry_date": "2027-08-31"
+    "expiry_date": "2027-08-31",
+    "units_per_pack": 60,
+    "unit_type": "capsule",
+    "whole_packs_count": 78,
+    "loose_units_count": 5
   },
   {
     "name": "Enalapril",
@@ -141,7 +173,11 @@
     "prescription_required": true,
     "description": "Monitor blood pressure and kidney function",
     "category": "Cardiovascular",
-    "expiry_date": "2028-08-31"
+    "expiry_date": "2028-08-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 112,
+    "loose_units_count": 7
   },
   {
     "name": "Furosemide",
@@ -157,7 +193,11 @@
     "prescription_required": true,
     "description": "Monitor electrolytes and kidney function",
     "category": "Cardiovascular",
-    "expiry_date": "2027-07-31"
+    "expiry_date": "2027-07-31",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 3
   },
   {
     "name": "Ibuprofen",
@@ -173,7 +213,11 @@
     "prescription_required": false,
     "description": "Take with food to reduce stomach irritation",
     "category": "Anti-inflammatory",
-    "expiry_date": "2026-11-30"
+    "expiry_date": "2026-11-30",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 298,
+    "loose_units_count": 1
   },
   {
     "name": "Levothyroxine",
@@ -189,7 +233,11 @@
     "prescription_required": true,
     "description": "Take on empty stomach, 30-60 min before breakfast",
     "category": "Cardiovascular",
-    "expiry_date": "2026-04-30"
+    "expiry_date": "2026-04-30",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 95,
+    "loose_units_count": 2
   },
   {
     "name": "Lisinopril",
@@ -205,7 +253,11 @@
     "prescription_required": true,
     "description": "Monitor blood pressure regularly",
     "category": "Cardiovascular",
-    "expiry_date": "2025-10-21"
+    "expiry_date": "2025-10-21",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 134,
+    "loose_units_count": 5
   },
   {
     "name": "Loratadine",
@@ -221,7 +273,11 @@
     "prescription_required": false,
     "description": "Non-sedating antihistamine",
     "category": "Respiratory",
-    "expiry_date": "2026-04-30"
+    "expiry_date": "2026-04-30",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 189,
+    "loose_units_count": 7
   },
   {
     "name": "Metformin",
@@ -237,7 +293,11 @@
     "prescription_required": true,
     "description": "Take with meals to reduce GI side effects",
     "category": "Cardiovascular",
-    "expiry_date": "2026-05-31"
+    "expiry_date": "2026-05-31",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 167,
+    "loose_units_count": 1
   },
   {
     "name": "Metoprolol",
@@ -253,7 +313,11 @@
     "prescription_required": true,
     "description": "Do not stop abruptly",
     "category": "Cardiovascular",
-    "expiry_date": "2028-04-30"
+    "expiry_date": "2028-04-30",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 98,
+    "loose_units_count": 3
   },
   {
     "name": "Omeprazole",
@@ -269,7 +333,11 @@
     "prescription_required": true,
     "description": "Take before meals",
     "category": "Gastrointestinal",
-    "expiry_date": "2027-10-31"
+    "expiry_date": "2027-10-31",
+    "units_per_pack": 20,
+    "unit_type": "capsule",
+    "whole_packs_count": 87,
+    "loose_units_count": 5
   },
   {
     "name": "Paracetamol",
@@ -285,7 +353,11 @@
     "prescription_required": false,
     "description": "Over-the-counter medication",
     "category": "Analgesics",
-    "expiry_date": "2027-04-30"
+    "expiry_date": "2027-04-30",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 345,
+    "loose_units_count": 1
   },
   {
     "name": "Prednisone",
@@ -301,7 +373,11 @@
     "prescription_required": true,
     "description": "Taper dose when discontinuing",
     "category": "Cardiovascular",
-    "expiry_date": "2026-11-30"
+    "expiry_date": "2026-11-30",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 65,
+    "loose_units_count": 2
   },
   {
     "name": "Salbutamol",
@@ -317,7 +393,11 @@
     "prescription_required": true,
     "description": "Prime inhaler before first use",
     "category": "Respiratory",
-    "expiry_date": "2028-04-30"
+    "expiry_date": "2028-04-30",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 3
   },
   {
     "name": "Simvastatin",
@@ -333,7 +413,11 @@
     "prescription_required": true,
     "description": "Take in the evening for best effect",
     "category": "Cardiovascular",
-    "expiry_date": "2028-08-31"
+    "expiry_date": "2028-08-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 123,
+    "loose_units_count": 7
   },
   {
     "name": "Amlodipine",
@@ -349,7 +433,11 @@
     "prescription_required": true,
     "description": "May cause ankle swelling",
     "category": "Cardiovascular",
-    "expiry_date": "2028-03-31"
+    "expiry_date": "2028-03-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 145,
+    "loose_units_count": 6
   },
   {
     "name": "Amiodarone",
@@ -365,7 +453,11 @@
     "prescription_required": true,
     "description": "Monitor thyroid and liver function",
     "category": "Cardiovascular",
-    "expiry_date": "2028-06-30"
+    "expiry_date": "2028-06-30",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 34,
+    "loose_units_count": 2
   },
   {
     "name": "Bisoprolol",
@@ -381,7 +473,11 @@
     "prescription_required": true,
     "description": "Selective beta-blocker",
     "category": "Cardiovascular",
-    "expiry_date": "2026-12-31"
+    "expiry_date": "2026-12-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 87,
+    "loose_units_count": 0
   },
   {
     "name": "Carvedilol",
@@ -397,7 +493,11 @@
     "prescription_required": true,
     "description": "Take with food",
     "category": "Cardiovascular",
-    "expiry_date": "2026-06-30"
+    "expiry_date": "2026-06-30",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 56,
+    "loose_units_count": 0
   },
   {
     "name": "Ciprofloxacin",
@@ -413,7 +513,11 @@
     "prescription_required": true,
     "description": "Avoid dairy products and antacids",
     "category": "Antibiotics",
-    "expiry_date": "2028-05-31"
+    "expiry_date": "2028-05-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 72,
+    "loose_units_count": 4
   },
   {
     "name": "Clarithromycin",
@@ -429,7 +533,11 @@
     "prescription_required": true,
     "description": "Can be taken with or without food",
     "category": "Antibiotics",
-    "expiry_date": "2026-06-30"
+    "expiry_date": "2026-06-30",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 43,
+    "loose_units_count": 0
   },
   {
     "name": "Clindamycin",
@@ -445,7 +553,11 @@
     "prescription_required": true,
     "description": "Monitor for diarrhea",
     "category": "Cardiovascular",
-    "expiry_date": "2027-11-30"
+    "expiry_date": "2027-11-30",
+    "units_per_pack": 100,
+    "unit_type": "capsule",
+    "whole_packs_count": 58,
+    "loose_units_count": 3
   },
   {
     "name": "Codeine",
@@ -461,7 +573,11 @@
     "prescription_required": true,
     "description": "May cause constipation and drowsiness",
     "category": "Analgesics",
-    "expiry_date": "2026-08-31"
+    "expiry_date": "2026-08-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 6
   },
   {
     "name": "Digoxin",
@@ -477,7 +593,11 @@
     "prescription_required": true,
     "description": "Monitor serum levels",
     "category": "Cardiovascular",
-    "expiry_date": "2027-05-31"
+    "expiry_date": "2027-05-31",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 2
   },
   {
     "name": "Diltiazem",
@@ -493,7 +613,11 @@
     "prescription_required": true,
     "description": "Do not crush or chew",
     "category": "Cardiovascular",
-    "expiry_date": "2026-05-31"
+    "expiry_date": "2026-05-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 6
   },
   {
     "name": "Domperidone",
@@ -509,7 +633,11 @@
     "prescription_required": true,
     "description": "Take before meals",
     "category": "Gastrointestinal",
-    "expiry_date": "2025-12-11"
+    "expiry_date": "2025-12-11",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 134,
+    "loose_units_count": 1
   },
   {
     "name": "Esomeprazole",
@@ -525,7 +653,11 @@
     "prescription_required": true,
     "description": "Take before first meal of the day",
     "category": "Gastrointestinal",
-    "expiry_date": "2026-06-30"
+    "expiry_date": "2026-06-30",
+    "units_per_pack": 60,
+    "unit_type": "capsule",
+    "whole_packs_count": 78,
+    "loose_units_count": 0
   },
   {
     "name": "Fluoxetine",
@@ -541,7 +673,11 @@
     "prescription_required": true,
     "description": "May take 4-6 weeks for full effect",
     "category": "Neurological",
-    "expiry_date": "2027-01-31"
+    "expiry_date": "2027-01-31",
+    "units_per_pack": 60,
+    "unit_type": "capsule",
+    "whole_packs_count": 89,
+    "loose_units_count": 7
   },
   {
     "name": "Gabapentin",
@@ -557,7 +693,11 @@
     "prescription_required": true,
     "description": "Titrate dose gradually",
     "category": "Neurological",
-    "expiry_date": "2028-01-31"
+    "expiry_date": "2028-01-31",
+    "units_per_pack": 30,
+    "unit_type": "capsule",
+    "whole_packs_count": 95,
+    "loose_units_count": 9
   },
   {
     "name": "Gliclazide",
@@ -573,7 +713,11 @@
     "prescription_required": true,
     "description": "Monitor blood glucose levels",
     "category": "Cardiovascular",
-    "expiry_date": "2027-10-31"
+    "expiry_date": "2027-10-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 112,
+    "loose_units_count": 7
   },
   {
     "name": "Haloperidol",
@@ -589,7 +733,11 @@
     "prescription_required": true,
     "description": "Monitor for extrapyramidal side effects",
     "category": "Neurological",
-    "expiry_date": "2025-10-20"
+    "expiry_date": "2025-10-20",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 6
   },
   {
     "name": "Hydrochlorothiazide",
@@ -605,7 +753,11 @@
     "prescription_required": true,
     "description": "Monitor electrolytes",
     "category": "Cardiovascular",
-    "expiry_date": "2028-06-30"
+    "expiry_date": "2028-06-30",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 156,
+    "loose_units_count": 5
   },
   {
     "name": "Insulin aspart",
@@ -621,7 +773,11 @@
     "prescription_required": true,
     "description": "Refrigerate, inject subcutaneously",
     "category": "Cardiovascular",
-    "expiry_date": "2026-09-30"
+    "expiry_date": "2026-09-30",
+    "units_per_pack": 1,
+    "unit_type": "dose",
+    "whole_packs_count": 23,
+    "loose_units_count": 0
   },
   {
     "name": "Irbesartan",
@@ -637,7 +793,11 @@
     "prescription_required": true,
     "description": "Monitor blood pressure and kidney function",
     "category": "Cardiovascular",
-    "expiry_date": "2027-03-31"
+    "expiry_date": "2027-03-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 98,
+    "loose_units_count": 9
   },
   {
     "name": "Ketoconazole",
@@ -653,7 +813,11 @@
     "prescription_required": true,
     "description": "Take with food",
     "category": "Cardiovascular",
-    "expiry_date": "2028-01-31"
+    "expiry_date": "2028-01-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 8
   },
   {
     "name": "Lansoprazole",
@@ -669,7 +833,11 @@
     "prescription_required": true,
     "description": "Take before breakfast",
     "category": "Gastrointestinal",
-    "expiry_date": "2027-04-30"
+    "expiry_date": "2027-04-30",
+    "units_per_pack": 20,
+    "unit_type": "capsule",
+    "whole_packs_count": 87,
+    "loose_units_count": 6
   },
   {
     "name": "Loperamide",
@@ -685,7 +853,11 @@
     "prescription_required": false,
     "description": "Do not exceed 8mg per day",
     "category": "Gastrointestinal",
-    "expiry_date": "2026-09-30"
+    "expiry_date": "2026-09-30",
+    "units_per_pack": 100,
+    "unit_type": "capsule",
+    "whole_packs_count": 145,
+    "loose_units_count": 4
   },
   {
     "name": "Losartan",
@@ -701,7 +873,11 @@
     "prescription_required": true,
     "description": "Monitor blood pressure",
     "category": "Cardiovascular",
-    "expiry_date": "2027-05-31"
+    "expiry_date": "2027-05-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 123,
+    "loose_units_count": 5
   },
   {
     "name": "Mebendazole",
@@ -717,7 +893,11 @@
     "prescription_required": false,
     "description": "For treatment of worm infections",
     "category": "Cardiovascular",
-    "expiry_date": "2028-03-31"
+    "expiry_date": "2028-03-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 78,
+    "loose_units_count": 9
   },
   {
     "name": "Memantine",
@@ -733,7 +913,11 @@
     "prescription_required": true,
     "description": "For Alzheimer's disease",
     "category": "Neurological",
-    "expiry_date": "2027-11-30"
+    "expiry_date": "2027-11-30",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 34,
+    "loose_units_count": 0
   },
   {
     "name": "Methylprednisolone",
@@ -749,7 +933,11 @@
     "prescription_required": true,
     "description": "Take with food",
     "category": "Anti-inflammatory",
-    "expiry_date": "2025-12-04"
+    "expiry_date": "2025-12-04",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 0
   },
   {
     "name": "Montelukast",
@@ -765,7 +953,11 @@
     "prescription_required": true,
     "description": "For asthma and allergies",
     "category": "Respiratory",
-    "expiry_date": "2026-10-31"
+    "expiry_date": "2026-10-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 9
   },
   {
     "name": "Morphine",
@@ -781,7 +973,11 @@
     "prescription_required": true,
     "description": "Controlled substance - do not crush",
     "category": "Analgesics",
-    "expiry_date": "2027-10-31"
+    "expiry_date": "2027-10-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 23,
+    "loose_units_count": 5
   },
   {
     "name": "Naproxen",
@@ -797,7 +993,11 @@
     "prescription_required": false,
     "description": "Take with food",
     "category": "Anti-inflammatory",
-    "expiry_date": "2026-04-30"
+    "expiry_date": "2026-04-30",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 167,
+    "loose_units_count": 3
   },
   {
     "name": "Nifedipine",
@@ -813,7 +1013,11 @@
     "prescription_required": true,
     "description": "Do not crush or chew",
     "category": "Cardiovascular",
-    "expiry_date": "2026-05-31"
+    "expiry_date": "2026-05-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 78,
+    "loose_units_count": 9
   },
   {
     "name": "Olanzapine",
@@ -829,7 +1033,11 @@
     "prescription_required": true,
     "description": "Monitor weight and glucose",
     "category": "Neurological",
-    "expiry_date": "2027-12-31"
+    "expiry_date": "2027-12-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 7
   },
   {
     "name": "Pantoprazole",
@@ -845,7 +1053,11 @@
     "prescription_required": true,
     "description": "Take before breakfast",
     "category": "Gastrointestinal",
-    "expiry_date": "2026-08-31"
+    "expiry_date": "2026-08-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 1
   },
   {
     "name": "Paroxetine",
@@ -861,7 +1073,11 @@
     "prescription_required": true,
     "description": "May cause withdrawal if stopped abruptly",
     "category": "Neurological",
-    "expiry_date": "2027-06-30"
+    "expiry_date": "2027-06-30",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 1
   },
   {
     "name": "Phenytoin",
@@ -877,7 +1093,11 @@
     "prescription_required": true,
     "description": "Monitor serum levels",
     "category": "Neurological",
-    "expiry_date": "2025-09-28"
+    "expiry_date": "2025-09-28",
+    "units_per_pack": 10,
+    "unit_type": "capsule",
+    "whole_packs_count": 56,
+    "loose_units_count": 1
   },
   {
     "name": "Prednisolone",
@@ -893,7 +1113,11 @@
     "prescription_required": true,
     "description": "Take with food",
     "category": "Anti-inflammatory",
-    "expiry_date": "2026-09-30"
+    "expiry_date": "2026-09-30",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 134,
+    "loose_units_count": 0
   },
   {
     "name": "Quetiapine",
@@ -909,7 +1133,11 @@
     "prescription_required": true,
     "description": "May cause sedation",
     "category": "Neurological",
-    "expiry_date": "2027-03-31"
+    "expiry_date": "2027-03-31",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 4
   },
   {
     "name": "Rabeprazole",
@@ -925,7 +1153,11 @@
     "prescription_required": true,
     "description": "Take before breakfast",
     "category": "Cardiovascular",
-    "expiry_date": "2025-09-25"
+    "expiry_date": "2025-09-25",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 78,
+    "loose_units_count": 6
   },
   {
     "name": "Ramipril",
@@ -941,7 +1173,11 @@
     "prescription_required": true,
     "description": "Monitor blood pressure and kidney function",
     "category": "Cardiovascular",
-    "expiry_date": "2026-06-30"
+    "expiry_date": "2026-06-30",
+    "units_per_pack": 60,
+    "unit_type": "capsule",
+    "whole_packs_count": 145,
+    "loose_units_count": 8
   },
   {
     "name": "Ranitidine",
@@ -957,7 +1193,11 @@
     "prescription_required": false,
     "description": "Can be taken with or without food",
     "category": "Gastrointestinal",
-    "expiry_date": "2027-07-31"
+    "expiry_date": "2027-07-31",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 112,
+    "loose_units_count": 5
   },
   {
     "name": "Risperidone",
@@ -973,7 +1213,11 @@
     "prescription_required": true,
     "description": "Monitor for tardive dyskinesia",
     "category": "Neurological",
-    "expiry_date": "2027-06-30"
+    "expiry_date": "2027-06-30",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 3
   },
   {
     "name": "Rosuvastatin",
@@ -989,7 +1233,11 @@
     "prescription_required": true,
     "description": "Monitor liver function and CK levels",
     "category": "Cardiovascular",
-    "expiry_date": "2028-02-29"
+    "expiry_date": "2028-02-29",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 9
   },
   {
     "name": "Sertraline",
@@ -1005,7 +1253,11 @@
     "prescription_required": true,
     "description": "Take with food",
     "category": "Neurological",
-    "expiry_date": "2027-03-31"
+    "expiry_date": "2027-03-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 98,
+    "loose_units_count": 3
   },
   {
     "name": "Spironolactone",
@@ -1021,7 +1273,11 @@
     "prescription_required": true,
     "description": "Monitor potassium levels",
     "category": "Cardiovascular",
-    "expiry_date": "2026-10-31"
+    "expiry_date": "2026-10-31",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 123,
+    "loose_units_count": 0
   },
   {
     "name": "Sumatriptan",
@@ -1037,7 +1293,11 @@
     "prescription_required": true,
     "description": "For migraine headaches",
     "category": "Neurological",
-    "expiry_date": "2028-07-31"
+    "expiry_date": "2028-07-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 34,
+    "loose_units_count": 7
   },
   {
     "name": "Tamsulosin",
@@ -1053,7 +1313,11 @@
     "prescription_required": true,
     "description": "Take 30 minutes after same meal each day",
     "category": "Cardiovascular",
-    "expiry_date": "2028-02-29"
+    "expiry_date": "2028-02-29",
+    "units_per_pack": 30,
+    "unit_type": "capsule",
+    "whole_packs_count": 67,
+    "loose_units_count": 0
   },
   {
     "name": "Telmisartan",
@@ -1069,7 +1333,11 @@
     "prescription_required": true,
     "description": "Can be taken with or without food",
     "category": "Cardiovascular",
-    "expiry_date": "2028-06-30"
+    "expiry_date": "2028-06-30",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 78,
+    "loose_units_count": 8
   },
   {
     "name": "Tramadol",
@@ -1085,7 +1353,11 @@
     "prescription_required": true,
     "description": "May cause seizures in high doses",
     "category": "Analgesics",
-    "expiry_date": "2026-05-31"
+    "expiry_date": "2026-05-31",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 6
   },
   {
     "name": "Trazodone",
@@ -1101,7 +1373,11 @@
     "prescription_required": true,
     "description": "Take with food",
     "category": "Cardiovascular",
-    "expiry_date": "2027-12-31"
+    "expiry_date": "2027-12-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 9
   },
   {
     "name": "Valproic acid",
@@ -1117,7 +1393,11 @@
     "prescription_required": true,
     "description": "Monitor liver function and blood counts",
     "category": "Cardiovascular",
-    "expiry_date": "2025-10-11"
+    "expiry_date": "2025-10-11",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 5
   },
   {
     "name": "Venlafaxine",
@@ -1133,7 +1413,11 @@
     "prescription_required": true,
     "description": "Do not crush or chew",
     "category": "Neurological",
-    "expiry_date": "2026-10-31"
+    "expiry_date": "2026-10-31",
+    "units_per_pack": 20,
+    "unit_type": "capsule",
+    "whole_packs_count": 56,
+    "loose_units_count": 5
   },
   {
     "name": "Verapamil",
@@ -1149,7 +1433,11 @@
     "prescription_required": true,
     "description": "Do not crush or chew",
     "category": "Cardiovascular",
-    "expiry_date": "2027-06-30"
+    "expiry_date": "2027-06-30",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 8
   },
   {
     "name": "Warfarin",
@@ -1165,7 +1453,11 @@
     "prescription_required": true,
     "description": "Monitor INR regularly",
     "category": "Cardiovascular",
-    "expiry_date": "2028-04-30"
+    "expiry_date": "2028-04-30",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 0
   },
   {
     "name": "Zolpidem",
@@ -1181,7 +1473,11 @@
     "prescription_required": true,
     "description": "Take only when can sleep 7-8 hours",
     "category": "Neurological",
-    "expiry_date": "2026-08-31"
+    "expiry_date": "2026-08-31",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 56,
+    "loose_units_count": 0
   },
   {
     "name": "Chlorpheniramine",
@@ -1197,7 +1493,11 @@
     "prescription_required": false,
     "description": "May cause drowsiness",
     "category": "Respiratory",
-    "expiry_date": "2027-02-28"
+    "expiry_date": "2027-02-28",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 198,
+    "loose_units_count": 3
   },
   {
     "name": "Dexamethasone",
@@ -1213,7 +1513,11 @@
     "prescription_required": true,
     "description": "Potent corticosteroid",
     "category": "Anti-inflammatory",
-    "expiry_date": "2027-02-28"
+    "expiry_date": "2027-02-28",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 123,
+    "loose_units_count": 9
   },
   {
     "name": "Diphenhydramine",
@@ -1229,7 +1533,11 @@
     "prescription_required": false,
     "description": "Causes sedation",
     "category": "Cardiovascular",
-    "expiry_date": "2027-10-31"
+    "expiry_date": "2027-10-31",
+    "units_per_pack": 30,
+    "unit_type": "capsule",
+    "whole_packs_count": 167,
+    "loose_units_count": 9
   },
   {
     "name": "Fexofenadine",
@@ -1245,7 +1553,11 @@
     "prescription_required": false,
     "description": "Non-drowsy antihistamine",
     "category": "Cardiovascular",
-    "expiry_date": "2027-02-28"
+    "expiry_date": "2027-02-28",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 145,
+    "loose_units_count": 7
   },
   {
     "name": "Hydrocortisone",
@@ -1261,7 +1573,11 @@
     "prescription_required": true,
     "description": "Take with food",
     "category": "Anti-inflammatory",
-    "expiry_date": "2027-10-31"
+    "expiry_date": "2027-10-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 1
   },
   {
     "name": "Isotretinoin",
@@ -1277,7 +1593,11 @@
     "prescription_required": true,
     "description": "Requires pregnancy monitoring",
     "category": "Cardiovascular",
-    "expiry_date": "2027-02-28"
+    "expiry_date": "2027-02-28",
+    "units_per_pack": 20,
+    "unit_type": "capsule",
+    "whole_packs_count": 23,
+    "loose_units_count": 3
   },
   {
     "name": "Lactulose",
@@ -1293,7 +1613,11 @@
     "prescription_required": false,
     "description": "For constipation",
     "category": "Gastrointestinal",
-    "expiry_date": "2027-10-31"
+    "expiry_date": "2027-10-31",
+    "units_per_pack": 100,
+    "unit_type": "ml",
+    "whole_packs_count": 67,
+    "loose_units_count": 1
   },
   {
     "name": "Meloxicam",
@@ -1309,7 +1633,11 @@
     "prescription_required": true,
     "description": "Take with food",
     "category": "Cardiovascular",
-    "expiry_date": "2027-06-30"
+    "expiry_date": "2027-06-30",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 98,
+    "loose_units_count": 5
   },
   {
     "name": "Miconazole",
@@ -1325,7 +1653,11 @@
     "prescription_required": false,
     "description": "For fungal infections",
     "category": "Cardiovascular",
-    "expiry_date": "2027-06-30"
+    "expiry_date": "2027-06-30",
+    "units_per_pack": 50,
+    "unit_type": "gram",
+    "whole_packs_count": 78,
+    "loose_units_count": 0
   },
   {
     "name": "Nitroglycerin",
@@ -1341,7 +1673,11 @@
     "prescription_required": true,
     "description": "For angina attacks",
     "category": "Cardiovascular",
-    "expiry_date": "2027-11-30"
+    "expiry_date": "2027-11-30",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 8
   },
   {
     "name": "Oxycodone",
@@ -1357,7 +1693,11 @@
     "prescription_required": true,
     "description": "Controlled substance - do not crush",
     "category": "Analgesics",
-    "expiry_date": "2028-03-31"
+    "expiry_date": "2028-03-31",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 18,
+    "loose_units_count": 8
   },
   {
     "name": "Penicillin V",
@@ -1373,7 +1713,11 @@
     "prescription_required": true,
     "description": "Take on empty stomach",
     "category": "Antibiotics",
-    "expiry_date": "2027-06-30"
+    "expiry_date": "2027-06-30",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 0
   },
   {
     "name": "Piroxicam",
@@ -1389,7 +1733,11 @@
     "prescription_required": true,
     "description": "Take with food",
     "category": "Cardiovascular",
-    "expiry_date": "2028-05-31"
+    "expiry_date": "2028-05-31",
+    "units_per_pack": 100,
+    "unit_type": "capsule",
+    "whole_packs_count": 67,
+    "loose_units_count": 1
   },
   {
     "name": "Promethazine",
@@ -1405,7 +1753,11 @@
     "prescription_required": true,
     "description": "For nausea and allergies",
     "category": "Cardiovascular",
-    "expiry_date": "2026-06-30"
+    "expiry_date": "2026-06-30",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 134,
+    "loose_units_count": 7
   },
   {
     "name": "Pseudoephedrine",
@@ -1421,7 +1773,11 @@
     "prescription_required": false,
     "description": "May cause insomnia",
     "category": "Cardiovascular",
-    "expiry_date": "2026-12-31"
+    "expiry_date": "2026-12-31",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 156,
+    "loose_units_count": 7
   },
   {
     "name": "Quinidine",
@@ -1437,7 +1793,11 @@
     "prescription_required": true,
     "description": "Monitor cardiac rhythm",
     "category": "Cardiovascular",
-    "expiry_date": "2027-09-30"
+    "expiry_date": "2027-09-30",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 34,
+    "loose_units_count": 9
   },
   {
     "name": "Rivaroxaban",
@@ -1453,7 +1813,11 @@
     "prescription_required": true,
     "description": "Take with food",
     "category": "Cardiovascular",
-    "expiry_date": "2026-05-31"
+    "expiry_date": "2026-05-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 3
   },
   {
     "name": "Scopolamine",
@@ -1469,7 +1833,11 @@
     "prescription_required": true,
     "description": "For motion sickness",
     "category": "Cardiovascular",
-    "expiry_date": "2028-05-31"
+    "expiry_date": "2028-05-31",
+    "units_per_pack": 10,
+    "unit_type": "patch",
+    "whole_packs_count": 23,
+    "loose_units_count": 0
   },
   {
     "name": "Sildenafil",
@@ -1485,7 +1853,11 @@
     "prescription_required": true,
     "description": "Take 1 hour before activity",
     "category": "Cardiovascular",
-    "expiry_date": "2028-03-31"
+    "expiry_date": "2028-03-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 34,
+    "loose_units_count": 7
   },
   {
     "name": "Theophylline",
@@ -1501,7 +1873,11 @@
     "prescription_required": true,
     "description": "Monitor serum levels",
     "category": "Respiratory",
-    "expiry_date": "2028-03-31"
+    "expiry_date": "2028-03-31",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 1
   },
   {
     "name": "Thyroid USP",
@@ -1517,7 +1893,11 @@
     "prescription_required": true,
     "description": "Take on empty stomach",
     "category": "Cardiovascular",
-    "expiry_date": "2027-09-30"
+    "expiry_date": "2027-09-30",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 5
   },
   {
     "name": "Triamcinolone",
@@ -1533,7 +1913,11 @@
     "prescription_required": true,
     "description": "For skin conditions",
     "category": "Cardiovascular",
-    "expiry_date": "2028-05-31"
+    "expiry_date": "2028-05-31",
+    "units_per_pack": 50,
+    "unit_type": "gram",
+    "whole_packs_count": 56,
+    "loose_units_count": 5
   },
   {
     "name": "Vitamin B12",
@@ -1549,7 +1933,11 @@
     "prescription_required": false,
     "description": "Vitamin supplement",
     "category": "Cardiovascular",
-    "expiry_date": "2027-02-28"
+    "expiry_date": "2027-02-28",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 234,
+    "loose_units_count": 6
   },
   {
     "name": "Vitamin C",
@@ -1565,7 +1953,11 @@
     "prescription_required": false,
     "description": "Antioxidant vitamin",
     "category": "Cardiovascular",
-    "expiry_date": "2028-04-30"
+    "expiry_date": "2028-04-30",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 298,
+    "loose_units_count": 8
   },
   {
     "name": "Vitamin D3",
@@ -1581,7 +1973,11 @@
     "prescription_required": false,
     "description": "For bone health",
     "category": "Cardiovascular",
-    "expiry_date": "2026-09-30"
+    "expiry_date": "2026-09-30",
+    "units_per_pack": 60,
+    "unit_type": "capsule",
+    "whole_packs_count": 267,
+    "loose_units_count": 7
   },
   {
     "name": "Xylometazoline",
@@ -1597,7 +1993,11 @@
     "prescription_required": false,
     "description": "Do not use for more than 3 days",
     "category": "Cardiovascular",
-    "expiry_date": "2028-04-30"
+    "expiry_date": "2028-04-30",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 5
   },
   {
     "name": "Zinc sulfate",
@@ -1613,7 +2013,11 @@
     "prescription_required": false,
     "description": "Mineral supplement",
     "category": "Cardiovascular",
-    "expiry_date": "2027-01-31"
+    "expiry_date": "2027-01-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 189,
+    "loose_units_count": 0
   },
   {
     "name": "Allopurinol",
@@ -1629,7 +2033,11 @@
     "prescription_required": true,
     "description": "For gout prevention",
     "category": "Cardiovascular",
-    "expiry_date": "2026-05-31"
+    "expiry_date": "2026-05-31",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 123,
+    "loose_units_count": 2
   },
   {
     "name": "Aripiprazole",
@@ -1645,7 +2053,11 @@
     "prescription_required": true,
     "description": "Atypical antipsychotic",
     "category": "Cardiovascular",
-    "expiry_date": "2028-03-31"
+    "expiry_date": "2028-03-31",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 34,
+    "loose_units_count": 6
   },
   {
     "name": "Atenolol",
@@ -1661,7 +2073,11 @@
     "prescription_required": true,
     "description": "Beta-blocker",
     "category": "Cardiovascular",
-    "expiry_date": "2027-03-31"
+    "expiry_date": "2027-03-31",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 145,
+    "loose_units_count": 5
   },
   {
     "name": "Baclofen",
@@ -1677,7 +2093,11 @@
     "prescription_required": true,
     "description": "Muscle relaxant",
     "category": "Cardiovascular",
-    "expiry_date": "2028-07-31"
+    "expiry_date": "2028-07-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 78,
+    "loose_units_count": 9
   },
   {
     "name": "Bupropion",
@@ -1693,7 +2113,11 @@
     "prescription_required": true,
     "description": "May lower seizure threshold",
     "category": "Cardiovascular",
-    "expiry_date": "2028-03-31"
+    "expiry_date": "2028-03-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 56,
+    "loose_units_count": 4
   },
   {
     "name": "Calcitriol",
@@ -1709,7 +2133,11 @@
     "prescription_required": true,
     "description": "Active vitamin D",
     "category": "Cardiovascular",
-    "expiry_date": "2028-06-30"
+    "expiry_date": "2028-06-30",
+    "units_per_pack": 60,
+    "unit_type": "capsule",
+    "whole_packs_count": 45,
+    "loose_units_count": 8
   },
   {
     "name": "Candesartan",
@@ -1725,7 +2153,11 @@
     "prescription_required": true,
     "description": "ARB for hypertension",
     "category": "Cardiovascular",
-    "expiry_date": "2027-08-31"
+    "expiry_date": "2027-08-31",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 2
   },
   {
     "name": "Carbidopa/Levodopa",
@@ -1741,7 +2173,11 @@
     "prescription_required": true,
     "description": "For Parkinson's disease",
     "category": "Cardiovascular",
-    "expiry_date": "2027-06-30"
+    "expiry_date": "2027-06-30",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 9
   },
   {
     "name": "Carbamazepine",
@@ -1757,7 +2193,11 @@
     "prescription_required": true,
     "description": "Monitor blood levels",
     "category": "Cardiovascular",
-    "expiry_date": "2028-02-29"
+    "expiry_date": "2028-02-29",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 78,
+    "loose_units_count": 7
   },
   {
     "name": "Ceftriaxone",
@@ -1773,7 +2213,11 @@
     "prescription_required": true,
     "description": "Third-generation cephalosporin",
     "category": "Antibiotics",
-    "expiry_date": "2028-06-30"
+    "expiry_date": "2028-06-30",
+    "units_per_pack": 5,
+    "unit_type": "dose",
+    "whole_packs_count": 23,
+    "loose_units_count": 4
   },
   {
     "name": "Celecoxib",
@@ -1789,7 +2233,11 @@
     "prescription_required": true,
     "description": "COX-2 selective inhibitor",
     "category": "Anti-inflammatory",
-    "expiry_date": "2025-11-12"
+    "expiry_date": "2025-11-12",
+    "units_per_pack": 100,
+    "unit_type": "capsule",
+    "whole_packs_count": 89,
+    "loose_units_count": 8
   },
   {
     "name": "Clonazepam",
@@ -1805,7 +2253,11 @@
     "prescription_required": true,
     "description": "Controlled substance",
     "category": "Neurological",
-    "expiry_date": "2026-07-31"
+    "expiry_date": "2026-07-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 8
   },
   {
     "name": "Cyclobenzaprine",
@@ -1821,7 +2273,11 @@
     "prescription_required": true,
     "description": "Muscle relaxant",
     "category": "Cardiovascular",
-    "expiry_date": "2027-03-31"
+    "expiry_date": "2027-03-31",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 98,
+    "loose_units_count": 7
   },
   {
     "name": "Dabigatran",
@@ -1837,7 +2293,11 @@
     "prescription_required": true,
     "description": "Direct thrombin inhibitor",
     "category": "Cardiovascular",
-    "expiry_date": "2026-10-31"
+    "expiry_date": "2026-10-31",
+    "units_per_pack": 60,
+    "unit_type": "capsule",
+    "whole_packs_count": 45,
+    "loose_units_count": 2
   },
   {
     "name": "Duloxetine",
@@ -1853,7 +2313,11 @@
     "prescription_required": true,
     "description": "SNRI antidepressant",
     "category": "Neurological",
-    "expiry_date": "2025-12-12"
+    "expiry_date": "2025-12-12",
+    "units_per_pack": 100,
+    "unit_type": "capsule",
+    "whole_packs_count": 67,
+    "loose_units_count": 2
   },
   {
     "name": "Escitalopram",
@@ -1869,7 +2333,11 @@
     "prescription_required": true,
     "description": "SSRI antidepressant",
     "category": "Neurological",
-    "expiry_date": "2026-03-31"
+    "expiry_date": "2026-03-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 7
   },
   {
     "name": "Ethinyl estradiol/Levonorgestrel",
@@ -1885,7 +2353,11 @@
     "prescription_required": true,
     "description": "Oral contraceptive",
     "category": "Cardiovascular",
-    "expiry_date": "2027-05-31"
+    "expiry_date": "2027-05-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 34,
+    "loose_units_count": 7
   },
   {
     "name": "Famotidine",
@@ -1901,7 +2373,11 @@
     "prescription_required": false,
     "description": "H2 receptor antagonist",
     "category": "Gastrointestinal",
-    "expiry_date": "2027-03-31"
+    "expiry_date": "2027-03-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 123,
+    "loose_units_count": 9
   },
   {
     "name": "Folic acid",
@@ -1917,7 +2393,11 @@
     "prescription_required": false,
     "description": "B vitamin supplement",
     "category": "Cardiovascular",
-    "expiry_date": "2028-06-30"
+    "expiry_date": "2028-06-30",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 278,
+    "loose_units_count": 0
   },
   {
     "name": "Glimepiride",
@@ -1933,7 +2413,11 @@
     "prescription_required": true,
     "description": "Sulfonylurea diabetes medication",
     "category": "Cardiovascular",
-    "expiry_date": "2026-05-31"
+    "expiry_date": "2026-05-31",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 98,
+    "loose_units_count": 1
   },
   {
     "name": "Hydrocodone/Acetaminophen",
@@ -1949,7 +2433,11 @@
     "prescription_required": true,
     "description": "Controlled substance - opioid",
     "category": "Analgesics",
-    "expiry_date": "2026-04-30"
+    "expiry_date": "2026-04-30",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 2
   },
   {
     "name": "Indapamide",
@@ -1965,7 +2453,11 @@
     "prescription_required": true,
     "description": "Thiazide-like diuretic",
     "category": "Cardiovascular",
-    "expiry_date": "2026-08-31"
+    "expiry_date": "2026-08-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 134,
+    "loose_units_count": 1
   },
   {
     "name": "Lamotrigine",
@@ -1981,7 +2473,11 @@
     "prescription_required": true,
     "description": "Monitor for serious rash",
     "category": "Neurological",
-    "expiry_date": "2027-10-31"
+    "expiry_date": "2027-10-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 78,
+    "loose_units_count": 4
   },
   {
     "name": "Levetiracetam",
@@ -1997,7 +2493,11 @@
     "prescription_required": true,
     "description": "Antiepileptic drug",
     "category": "Neurological",
-    "expiry_date": "2027-02-28"
+    "expiry_date": "2027-02-28",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 7
   },
   {
     "name": "Lithium carbonate",
@@ -2013,7 +2513,11 @@
     "prescription_required": true,
     "description": "Monitor serum levels",
     "category": "Cardiovascular",
-    "expiry_date": "2028-02-29"
+    "expiry_date": "2028-02-29",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 56,
+    "loose_units_count": 1
   },
   {
     "name": "Lorazepam",
@@ -2029,7 +2533,11 @@
     "prescription_required": true,
     "description": "Controlled substance - benzodiazepine",
     "category": "Neurological",
-    "expiry_date": "2028-06-30"
+    "expiry_date": "2028-06-30",
+    "units_per_pack": 60,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 6
   },
   {
     "name": "Mirtazapine",
@@ -2045,7 +2553,11 @@
     "prescription_required": true,
     "description": "May cause weight gain",
     "category": "Neurological",
-    "expiry_date": "2028-05-31"
+    "expiry_date": "2028-05-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 78,
+    "loose_units_count": 1
   },
   {
     "name": "Mometasone",
@@ -2061,7 +2573,11 @@
     "prescription_required": true,
     "description": "Corticosteroid nasal spray",
     "category": "Cardiovascular",
-    "expiry_date": "2027-01-31"
+    "expiry_date": "2027-01-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 0
   },
   {
     "name": "Nitrofurantoin",
@@ -2077,7 +2593,11 @@
     "prescription_required": true,
     "description": "For urinary tract infections",
     "category": "Cardiovascular",
-    "expiry_date": "2027-02-28"
+    "expiry_date": "2027-02-28",
+    "units_per_pack": 30,
+    "unit_type": "capsule",
+    "whole_packs_count": 89,
+    "loose_units_count": 4
   },
   {
     "name": "Norvasc",
@@ -2093,7 +2613,11 @@
     "prescription_required": true,
     "description": "Calcium channel blocker",
     "category": "Cardiovascular",
-    "expiry_date": "2026-12-31"
+    "expiry_date": "2026-12-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 156,
+    "loose_units_count": 6
   },
   {
     "name": "Ondansetron",
@@ -2109,7 +2633,11 @@
     "prescription_required": true,
     "description": "Antiemetic",
     "category": "Cardiovascular",
-    "expiry_date": "2027-04-30"
+    "expiry_date": "2027-04-30",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 1
   },
   {
     "name": "Pioglitazone",
@@ -2125,7 +2653,11 @@
     "prescription_required": true,
     "description": "Thiazolidinedione for diabetes",
     "category": "Cardiovascular",
-    "expiry_date": "2028-07-31"
+    "expiry_date": "2028-07-31",
+    "units_per_pack": 30,
+    "unit_type": "tablet",
+    "whole_packs_count": 78,
+    "loose_units_count": 4
   },
   {
     "name": "Pravastatin",
@@ -2141,7 +2673,11 @@
     "prescription_required": true,
     "description": "Statin cholesterol medication",
     "category": "Cardiovascular",
-    "expiry_date": "2026-03-31"
+    "expiry_date": "2026-03-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 123,
+    "loose_units_count": 6
   },
   {
     "name": "Pregabalin",
@@ -2157,7 +2693,11 @@
     "prescription_required": true,
     "description": "For neuropathic pain",
     "category": "Neurological",
-    "expiry_date": "2026-05-31"
+    "expiry_date": "2026-05-31",
+    "units_per_pack": 10,
+    "unit_type": "capsule",
+    "whole_packs_count": 56,
+    "loose_units_count": 7
   },
   {
     "name": "Quinapril",
@@ -2173,7 +2713,11 @@
     "prescription_required": true,
     "description": "ACE inhibitor",
     "category": "Cardiovascular",
-    "expiry_date": "2025-12-02"
+    "expiry_date": "2025-12-02",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 2
   },
   {
     "name": "Rivastigmine",
@@ -2189,7 +2733,11 @@
     "prescription_required": true,
     "description": "For Alzheimer's disease",
     "category": "Cardiovascular",
-    "expiry_date": "2025-11-20"
+    "expiry_date": "2025-11-20",
+    "units_per_pack": 20,
+    "unit_type": "capsule",
+    "whole_packs_count": 34,
+    "loose_units_count": 1
   },
   {
     "name": "Salmeterol",
@@ -2205,7 +2753,11 @@
     "prescription_required": true,
     "description": "Long-acting bronchodilator",
     "category": "Respiratory",
-    "expiry_date": "2028-08-31"
+    "expiry_date": "2028-08-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 23,
+    "loose_units_count": 8
   },
   {
     "name": "Sildenafil",
@@ -2221,7 +2773,11 @@
     "prescription_required": true,
     "description": "For pulmonary hypertension",
     "category": "Cardiovascular",
-    "expiry_date": "2027-07-31"
+    "expiry_date": "2027-07-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 45,
+    "loose_units_count": 5
   },
   {
     "name": "Tiotropium",
@@ -2237,7 +2793,11 @@
     "prescription_required": true,
     "description": "COPD maintenance therapy",
     "category": "Respiratory",
-    "expiry_date": "2028-01-31"
+    "expiry_date": "2028-01-31",
+    "units_per_pack": 20,
+    "unit_type": "tablet",
+    "whole_packs_count": 23,
+    "loose_units_count": 3
   },
   {
     "name": "Topiramate",
@@ -2253,7 +2813,11 @@
     "prescription_required": true,
     "description": "Antiepileptic drug",
     "category": "Neurological",
-    "expiry_date": "2027-08-31"
+    "expiry_date": "2027-08-31",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 67,
+    "loose_units_count": 4
   },
   {
     "name": "Valsartan",
@@ -2269,7 +2833,11 @@
     "prescription_required": true,
     "description": "ARB for hypertension",
     "category": "Cardiovascular",
-    "expiry_date": "2027-11-30"
+    "expiry_date": "2027-11-30",
+    "units_per_pack": 10,
+    "unit_type": "tablet",
+    "whole_packs_count": 89,
+    "loose_units_count": 2
   },
   {
     "name": "Varenicline",
@@ -2285,7 +2853,11 @@
     "prescription_required": true,
     "description": "Smoking cessation aid",
     "category": "Cardiovascular",
-    "expiry_date": "2026-03-31"
+    "expiry_date": "2026-03-31",
+    "units_per_pack": 100,
+    "unit_type": "tablet",
+    "whole_packs_count": 23,
+    "loose_units_count": 5
   },
   {
     "name": "Ziprasidone",
@@ -2301,6 +2873,10 @@
     "prescription_required": true,
     "description": "Atypical antipsychotic",
     "category": "Cardiovascular",
-    "expiry_date": "2027-06-30"
+    "expiry_date": "2027-06-30",
+    "units_per_pack": 10,
+    "unit_type": "capsule",
+    "whole_packs_count": 34,
+    "loose_units_count": 2
   }
 ]

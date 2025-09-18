@@ -67,6 +67,13 @@ export interface OrganizationDrugInventory {
   supplier?: string;
   batch_number?: string;
   expiry_date?: string;
+
+  // Pack Tracking Information
+  units_per_pack?: number;
+  unit_type?: 'tablet' | 'capsule' | 'ml' | 'dose' | 'patch' | 'suppository' | 'gram';
+  whole_packs_count?: number;
+  loose_units_count?: number;
+
   is_active: boolean;
   is_prescription_only: boolean;
   notes?: string;

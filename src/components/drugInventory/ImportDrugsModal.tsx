@@ -33,6 +33,11 @@ interface JsonDrug {
   expiry?: string;
   expiry_date?: string;
   stock_quantity?: number;
+  // Pack tracking fields
+  units_per_pack?: number;
+  unit_type?: string;
+  whole_packs_count?: number;
+  loose_units_count?: number;
 }
 
 // Excel parsing function using xlsx library
@@ -142,6 +147,38 @@ const parseExcelFile = async (file: File): Promise<JsonDrug[]> => {
                 const stockValue = parseFloat(stringValue);
                 if (!isNaN(stockValue)) {
                   drug.stock_quantity = stockValue;
+                }
+                break;
+              case 'units_per_pack':
+              case 'unitsperpack':
+              case 'pack_size':
+                const unitsPerPack = parseInt(stringValue);
+                if (!isNaN(unitsPerPack) && unitsPerPack > 0) {
+                  drug.units_per_pack = unitsPerPack;
+                }
+                break;
+              case 'unit_type':
+              case 'unittype':
+              case 'type_unit':
+                if (stringValue && stringValue.trim() !== '') {
+                  drug.unit_type = stringValue.toLowerCase();
+                }
+                break;
+              case 'whole_packs_count':
+              case 'whole_packs':
+              case 'pack_count':
+              case 'packs':
+                const wholePacks = parseInt(stringValue);
+                if (!isNaN(wholePacks) && wholePacks >= 0) {
+                  drug.whole_packs_count = wholePacks;
+                }
+                break;
+              case 'loose_units_count':
+              case 'loose_units':
+              case 'loose':
+                const looseUnits = parseInt(stringValue);
+                if (!isNaN(looseUnits) && looseUnits >= 0) {
+                  drug.loose_units_count = looseUnits;
                 }
                 break;
             }
@@ -271,6 +308,12 @@ export default function ImportDrugsModal({ categories, onClose, onSuccess, activ
       expiry_date: parseExpiryDate(jsonDrug.expiry || jsonDrug.expiry_date || '') || undefined,
       is_prescription_only: false,
       notes: `Imported from JSON${jsonDrug.original_row ? ` (row ${jsonDrug.original_row})` : ''}`,
+
+      // Pack tracking fields
+      units_per_pack: jsonDrug.units_per_pack || undefined,
+      unit_type: jsonDrug.unit_type as 'tablet' | 'capsule' | 'ml' | 'dose' | 'patch' | 'suppository' | 'gram' || undefined,
+      whole_packs_count: jsonDrug.whole_packs_count !== undefined ? jsonDrug.whole_packs_count : undefined,
+      loose_units_count: jsonDrug.loose_units_count !== undefined ? jsonDrug.loose_units_count : undefined,
     };
 
     // Only set category_id if we found a matching category
@@ -577,6 +620,10 @@ export default function ImportDrugsModal({ categories, onClose, onSuccess, activ
                       <li><strong>active_ingredient</strong> (optional): Active ingredient</li>
                       <li><strong>price</strong> (optional): Unit price (0.15)</li>
                       <li><strong>stock_quantity</strong> (optional): Stock amount</li>
+                      <li><strong>units_per_pack</strong> (optional): Number of units per pack (20, 30, 100)</li>
+                      <li><strong>unit_type</strong> (optional): Unit type (tablet, capsule, ml, dose, patch, suppository, gram)</li>
+                      <li><strong>whole_packs_count</strong> (optional): Number of whole packs</li>
+                      <li><strong>loose_units_count</strong> (optional): Number of loose units</li>
                       <li><strong>supplier</strong> (optional): Supplier name</li>
                       <li><strong>expiry</strong> (optional): Expiry date (DD.MM.YYYY or YYYY-MM-DD)</li>
                     </ul>

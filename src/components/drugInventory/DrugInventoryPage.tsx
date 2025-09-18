@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 import { ModeAwareDrugInventoryService } from '@/lib/modeAwareDrugInventoryService';
-import { formatDrugName, getDrugStockStatus, isNearExpiry } from '@/lib/drugInventory';
+import { formatDrugName, getDrugStockStatus, isNearExpiry, formatPackDisplay, getPackStockStatus } from '@/lib/drugInventory';
 import { DrugInventoryExportService } from '@/lib/drugInventoryExport';
 import { useOrganizationPermissions } from '@/hooks/useOrganizationPermissions';
 import { ManageInventoryGuard, WriteOffGuard } from '@/components/organization/PermissionGuard';
@@ -242,9 +242,9 @@ export default function DrugInventoryPage() {
       return false;
     }
 
-    // Stock filter
+    // Stock filter (updated to use pack-aware status)
     if (stockFilter) {
-      const stockStatus = getDrugStockStatus(drug);
+      const stockStatus = getPackStockStatus(drug);
       if (stockFilter === 'low_stock' && stockStatus !== 'low_stock') {
         return false;
       }
@@ -680,9 +680,9 @@ export default function DrugInventoryPage() {
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                   {paginatedDrugs.map((drug) => {
-                    const stockStatus = getDrugStockStatus(drug);
+                    const stockStatus = getPackStockStatus(drug);
                     const nearExpiry = isNearExpiry(drug.expiry_date);
-                    
+
                     return (
                       <tr key={drug.id} className="hover:bg-slate-50">
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -702,12 +702,32 @@ export default function DrugInventoryPage() {
                           {drug.category?.name || 'Uncategorized'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className={`text-sm font-medium ${
-                            stockStatus === 'out_of_stock' ? 'text-red-600' :
-                            stockStatus === 'low_stock' ? 'text-amber-600' : 'text-green-600'
-                          }`}>
-                            {drug.stock_quantity}
-                          </div>
+                          {/* Enhanced stock display with pack tracking */}
+                          {drug.units_per_pack && (drug.whole_packs_count !== undefined || drug.loose_units_count !== undefined) ? (
+                            <div className={`text-sm ${
+                              stockStatus === 'out_of_stock' ? 'text-red-600' :
+                              stockStatus === 'low_stock' ? 'text-amber-600' : 'text-green-600'
+                            }`}>
+                              <div className="font-medium">
+                                {formatPackDisplay(
+                                  drug.whole_packs_count || 0,
+                                  drug.loose_units_count || 0,
+                                  drug.units_per_pack,
+                                  drug.unit_type || 'unit'
+                                )}
+                              </div>
+                              <div className="text-xs text-slate-500 mt-1">
+                                {drug.whole_packs_count || 0} packs + {drug.loose_units_count || 0} loose
+                              </div>
+                            </div>
+                          ) : (
+                            <div className={`text-sm font-medium ${
+                              stockStatus === 'out_of_stock' ? 'text-red-600' :
+                              stockStatus === 'low_stock' ? 'text-amber-600' : 'text-green-600'
+                            }`}>
+                              {drug.stock_quantity || 0} units
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {drug.expiry_date ? (
@@ -865,7 +885,7 @@ export default function DrugInventoryPage() {
               </div>
               <div className="ml-4">
                 <h3 className="text-lg font-semibold text-slate-900">
-                  {drugs.filter(drug => getDrugStockStatus(drug) === 'low_stock' || getDrugStockStatus(drug) === 'out_of_stock').length}
+                  {drugs.filter(drug => getPackStockStatus(drug) === 'low_stock' || getPackStockStatus(drug) === 'out_of_stock').length}
                 </h3>
                 <p className="text-sm text-slate-600">Low/Out of Stock</p>
               </div>

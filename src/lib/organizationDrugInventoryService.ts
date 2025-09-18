@@ -78,6 +78,11 @@ export class OrganizationDrugInventoryService {
         expiry_date: drugData.expiry_date || null,
         is_prescription_only: drugData.is_prescription_only || false,
         notes: drugData.notes || null,
+        // Pack tracking fields
+        units_per_pack: drugData.units_per_pack || null,
+        unit_type: drugData.unit_type || null,
+        whole_packs_count: drugData.whole_packs_count !== undefined ? drugData.whole_packs_count : null,
+        loose_units_count: drugData.loose_units_count !== undefined ? drugData.loose_units_count : null,
         created_by: user.id,
         updated_by: user.id
       };

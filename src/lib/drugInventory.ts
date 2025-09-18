@@ -176,6 +176,11 @@ export class DrugInventoryService {
       batch_number: formData.batch_number && formData.batch_number.trim() !== '' ? formData.batch_number : undefined,
       expiry_date: formData.expiry_date && formData.expiry_date.trim() !== '' ? formData.expiry_date : undefined,
       notes: formData.notes && formData.notes.trim() !== '' ? formData.notes : undefined,
+      // Pack tracking fields
+      units_per_pack: formData.units_per_pack,
+      unit_type: formData.unit_type && formData.unit_type.trim() !== '' ? formData.unit_type : undefined,
+      whole_packs_count: formData.whole_packs_count,
+      loose_units_count: formData.loose_units_count,
     };
 
     const drugData = {
@@ -892,6 +897,50 @@ export const isNearExpiry = (expiryDate?: string): boolean => {
   const now = new Date();
   const threeMonthsFromNow = new Date();
   threeMonthsFromNow.setMonth(now.getMonth() + 3);
-  
+
   return expiry < threeMonthsFromNow;
+};
+
+// Pack tracking utility functions
+export const calculateTotalIndividualUnits = (
+  wholePacks: number = 0,
+  looseUnits: number = 0,
+  unitsPerPack: number = 1
+): number => {
+  return (wholePacks * unitsPerPack) + looseUnits;
+};
+
+export const formatPackDisplay = (
+  wholePacks: number = 0,
+  looseUnits: number = 0,
+  unitsPerPack: number = 1,
+  unitType: string = 'unit'
+): string => {
+  const totalUnits = calculateTotalIndividualUnits(wholePacks, looseUnits, unitsPerPack);
+
+  if (wholePacks === 0 && looseUnits === 0) {
+    return '0 units';
+  }
+
+  const parts: string[] = [];
+  if (wholePacks > 0) {
+    parts.push(`${wholePacks} pack${wholePacks !== 1 ? 's' : ''}`);
+  }
+  if (looseUnits > 0) {
+    parts.push(`${looseUnits} ${unitType}${looseUnits !== 1 ? 's' : ''}`);
+  }
+
+  const display = parts.join(' + ');
+  return `${display} (${totalUnits} total ${unitType}${totalUnits !== 1 ? 's' : ''})`;
+};
+
+export const getPackStockStatus = (drug: UserDrugInventory | any): 'in_stock' | 'low_stock' | 'out_of_stock' => {
+  // Use new pack tracking fields if available, fallback to stock_quantity
+  const totalUnits = drug.units_per_pack && (drug.whole_packs_count !== undefined || drug.loose_units_count !== undefined)
+    ? calculateTotalIndividualUnits(drug.whole_packs_count || 0, drug.loose_units_count || 0, drug.units_per_pack)
+    : (drug.stock_quantity || 0);
+
+  if (totalUnits === 0) return 'out_of_stock';
+  if (totalUnits <= 20) return 'low_stock'; // Low stock threshold for individual units
+  return 'in_stock';
 };

@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { InventoryUsageService } from './inventoryUsageService';
+import { calculateTotalIndividualUnits } from './drugInventory';
 import type { DrugUsageHistory, UserDrugInventory } from '@/types/database';
 
 export interface DrugDispensingRecord extends DrugUsageHistory {
@@ -21,6 +22,108 @@ export interface DispensingStats {
     total_dispensings: number;
   }>;
   recent_activity: DrugDispensingRecord[];
+}
+
+// Helper function to update inventory with pack tracking
+async function updateInventoryWithPackTracking(
+  drugId: string,
+  userId: string,
+  quantityChange: number, // Positive to add, negative to subtract
+  operation: 'add' | 'subtract'
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get current inventory
+    const { data: inventoryData, error: inventoryError } = await supabase
+      .from('user_drug_inventory')
+      .select('stock_quantity, whole_packs_count, loose_units_count, units_per_pack, unit_type')
+      .eq('id', drugId)
+      .eq('user_id', userId)
+      .single();
+
+    if (inventoryError) {
+      return { success: false, error: `Could not find inventory record: ${inventoryError.message}` };
+    }
+
+    const currentStock = inventoryData.stock_quantity || 0;
+    const currentWholePacks = inventoryData.whole_packs_count || 0;
+    const currentLooseUnits = inventoryData.loose_units_count || 0;
+    const unitsPerPack = inventoryData.units_per_pack || 1;
+
+    // Calculate based on whether we have pack tracking data
+    if (inventoryData.units_per_pack && (inventoryData.whole_packs_count !== null || inventoryData.loose_units_count !== null)) {
+      // Use pack tracking logic
+      let newWholePacks = currentWholePacks;
+      let newLooseUnits = currentLooseUnits;
+
+      if (operation === 'subtract') {
+        const quantityToSubtract = Math.abs(quantityChange);
+        let remainingToSubtract = quantityToSubtract;
+
+        // First, subtract from loose units
+        if (newLooseUnits >= remainingToSubtract) {
+          newLooseUnits -= remainingToSubtract;
+          remainingToSubtract = 0;
+        } else {
+          remainingToSubtract -= newLooseUnits;
+          newLooseUnits = 0;
+
+          // Then subtract from whole packs (opening them as needed)
+          const packsToOpen = Math.ceil(remainingToSubtract / unitsPerPack);
+          if (newWholePacks >= packsToOpen) {
+            newWholePacks -= packsToOpen;
+            const totalUnitsFromPacks = packsToOpen * unitsPerPack;
+            newLooseUnits = totalUnitsFromPacks - remainingToSubtract;
+          } else {
+            // Not enough inventory
+            return { success: false, error: `Insufficient inventory. Need ${quantityToSubtract} units, have ${calculateTotalIndividualUnits(currentWholePacks, currentLooseUnits, unitsPerPack)} units.` };
+          }
+        }
+      } else {
+        // Adding inventory (not typically used in dispensing, but here for completeness)
+        newLooseUnits += quantityChange;
+        if (newLooseUnits >= unitsPerPack) {
+          const newFullPacks = Math.floor(newLooseUnits / unitsPerPack);
+          newWholePacks += newFullPacks;
+          newLooseUnits = newLooseUnits % unitsPerPack;
+        }
+      }
+
+      // Update with new pack counts and maintain stock_quantity for backward compatibility
+      const newStockQuantity = newWholePacks; // stock_quantity represents whole packs
+      const { error: updateError } = await supabase
+        .from('user_drug_inventory')
+        .update({
+          stock_quantity: newStockQuantity,
+          whole_packs_count: newWholePacks,
+          loose_units_count: newLooseUnits
+        })
+        .eq('id', drugId)
+        .eq('user_id', userId);
+
+      if (updateError) {
+        return { success: false, error: `Failed to update inventory: ${updateError.message}` };
+      }
+    } else {
+      // Fallback to simple stock_quantity logic
+      const newStock = operation === 'subtract'
+        ? Math.max(0, currentStock - Math.abs(quantityChange))
+        : currentStock + quantityChange;
+
+      const { error: updateError } = await supabase
+        .from('user_drug_inventory')
+        .update({ stock_quantity: newStock })
+        .eq('id', drugId)
+        .eq('user_id', userId);
+
+      if (updateError) {
+        return { success: false, error: `Failed to update inventory: ${updateError.message}` };
+      }
+    }
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
 }
 
 export class DrugDispensingService {
@@ -602,33 +705,16 @@ export class DrugDispensingService {
         // Apply inventory reductions and record usage by drug (consolidated)
         for (const [drugId, totalReduction] of Object.entries(inventoryUpdates)) {
           console.log('🔄 Reducing inventory for drug_id:', drugId, 'by total quantity:', totalReduction);
-          
-          // Get current inventory
-          const { data: inventoryData, error: inventoryError } = await supabase
-            .from('user_drug_inventory')
-            .select('stock_quantity')
-            .eq('id', drugId)
-            .eq('user_id', user.id)
-            .single();
 
-          if (inventoryError) {
-            console.warn('⚠️ Could not find inventory record for drug_id:', drugId, inventoryError);
-          } else {
-            const newStock = Math.max(0, (inventoryData.stock_quantity || 0) - totalReduction);
-            console.log('📦 Updating inventory: stock quantity', inventoryData.stock_quantity, '→', newStock);
-            
-            const { error: updateError } = await supabase
-              .from('user_drug_inventory')
-              .update({ stock_quantity: newStock })
-              .eq('id', drugId)
-              .eq('user_id', user.id);
+          // Use pack-aware inventory update
+          const updateResult = await updateInventoryWithPackTracking(drugId, user.id, totalReduction, 'subtract');
 
-            if (updateError) {
-              console.error('❌ Error updating inventory for drug_id:', drugId, updateError);
-              return { success: false, error: 'Failed to update inventory: ' + updateError.message };
-            }
-            
-            console.log('✅ Successfully reduced inventory by', totalReduction, 'units for drug_id:', drugId);
+          if (!updateResult.success) {
+            console.error('❌ Error updating inventory for drug_id:', drugId, updateResult.error);
+            return { success: false, error: 'Failed to update inventory: ' + updateResult.error };
+          }
+
+          console.log('✅ Successfully reduced inventory by', totalReduction, 'units for drug_id:', drugId);
             
             // Get drug name and collect patient info for this drug
             const recordsForThisDrug = allRecords.filter(r => r.drug_id === drugId);
@@ -726,33 +812,16 @@ export class DrugDispensingService {
       // Before deleting, reduce the inventory count if the record has a drug_id
       if (existingRecord.drug_id && existingRecord.quantity_dispensed) {
         console.log('🔄 Reducing inventory for drug_id:', existingRecord.drug_id, 'by quantity:', existingRecord.quantity_dispensed);
-        
-        // Get current inventory
-        const { data: inventoryData, error: inventoryError } = await supabase
-          .from('user_drug_inventory')
-          .select('stock_quantity')
-          .eq('id', existingRecord.drug_id)
-          .eq('user_id', user.id)
-          .single();
 
-        if (inventoryError) {
-          console.warn('⚠️ Could not find inventory record for drug_id:', existingRecord.drug_id, inventoryError);
-        } else {
-          const newStock = Math.max(0, (inventoryData.stock_quantity || 0) - existingRecord.quantity_dispensed);
-          console.log('📦 Updating inventory: stock quantity', inventoryData.stock_quantity, '→', newStock);
-          
-          const { error: updateError } = await supabase
-            .from('user_drug_inventory')
-            .update({ stock_quantity: newStock })
-            .eq('id', existingRecord.drug_id)
-            .eq('user_id', user.id);
+        // Use pack-aware inventory update
+        const updateResult = await updateInventoryWithPackTracking(existingRecord.drug_id, user.id, existingRecord.quantity_dispensed, 'subtract');
 
-          if (updateError) {
-            console.error('❌ Error updating inventory:', updateError);
-            return { success: false, error: 'Failed to update inventory: ' + updateError.message };
-          }
-          
-          console.log('✅ Successfully reduced inventory by', existingRecord.quantity_dispensed, 'units');
+        if (!updateResult.success) {
+          console.error('❌ Error updating inventory:', updateResult.error);
+          return { success: false, error: 'Failed to update inventory: ' + updateResult.error };
+        }
+
+        console.log('✅ Successfully reduced inventory by', existingRecord.quantity_dispensed, 'units');
           
           // Record this inventory usage for the usage report
           const drugName = existingRecord.user_drug_inventory?.drug_name || 

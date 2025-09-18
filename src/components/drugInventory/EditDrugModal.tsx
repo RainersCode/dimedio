@@ -36,6 +36,11 @@ export default function EditDrugModal({ drug, categories, onClose, onSuccess }: 
     expiry_date: drug.expiry_date || '',
     is_prescription_only: drug.is_prescription_only,
     notes: drug.notes || '',
+    // Pack tracking fields
+    units_per_pack: drug.units_per_pack,
+    unit_type: drug.unit_type,
+    whole_packs_count: drug.whole_packs_count,
+    loose_units_count: drug.loose_units_count,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -67,6 +72,11 @@ export default function EditDrugModal({ drug, categories, onClose, onSuccess }: 
         expiry_date: formData.expiry_date || null,
         notes: formData.notes || null,
         unit_price: formData.unit_price || null,
+        // Pack tracking fields
+        units_per_pack: formData.units_per_pack || null,
+        unit_type: formData.unit_type || null,
+        whole_packs_count: formData.whole_packs_count !== undefined ? formData.whole_packs_count : null,
+        loose_units_count: formData.loose_units_count !== undefined ? formData.loose_units_count : null,
       };
 
       const { error } = await ModeAwareDrugInventoryService.updateDrug(
@@ -137,7 +147,7 @@ export default function EditDrugModal({ drug, categories, onClose, onSuccess }: 
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Stock Quantity</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Stock Quantity (Packs)</label>
               <input
                 type="number"
                 min="0"
@@ -145,6 +155,7 @@ export default function EditDrugModal({ drug, categories, onClose, onSuccess }: 
                 onChange={(e) => setFormData(prev => ({ ...prev, stock_quantity: parseInt(e.target.value) || 0 }))}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
               />
+              <p className="text-xs text-slate-500 mt-1">For backward compatibility</p>
             </div>
 
             <div>
@@ -160,6 +171,61 @@ export default function EditDrugModal({ drug, categories, onClose, onSuccess }: 
             </div>
 
             <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Units per Pack</label>
+              <input
+                type="number"
+                min="1"
+                value={formData.units_per_pack || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, units_per_pack: parseInt(e.target.value) || undefined }))}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                placeholder="e.g., 20, 30, 100"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Unit Type</label>
+              <select
+                value={formData.unit_type || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, unit_type: e.target.value as any }))}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              >
+                <option value="">Select unit type</option>
+                <option value="tablet">Tablet</option>
+                <option value="capsule">Capsule</option>
+                <option value="ml">Milliliter (ml)</option>
+                <option value="dose">Dose</option>
+                <option value="patch">Patch</option>
+                <option value="suppository">Suppository</option>
+                <option value="gram">Gram</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Whole Packs Count</label>
+              <input
+                type="number"
+                min="0"
+                value={formData.whole_packs_count !== undefined ? formData.whole_packs_count : ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, whole_packs_count: parseInt(e.target.value) || undefined }))}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                placeholder="e.g., 5"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Loose Units Count</label>
+              <input
+                type="number"
+                min="0"
+                max={formData.units_per_pack ? formData.units_per_pack - 1 : undefined}
+                value={formData.loose_units_count !== undefined ? formData.loose_units_count : ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, loose_units_count: parseInt(e.target.value) || undefined }))}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                placeholder="e.g., 3"
+              />
+            </div>
+
+            <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Expiry Date</label>
               <input
                 type="date"
@@ -169,6 +235,18 @@ export default function EditDrugModal({ drug, categories, onClose, onSuccess }: 
               />
             </div>
           </div>
+
+          {/* Total Units Display */}
+          {formData.units_per_pack && (formData.whole_packs_count !== undefined || formData.loose_units_count !== undefined) && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+              <p className="text-sm font-medium text-emerald-800">
+                Total Available: {((formData.whole_packs_count || 0) * formData.units_per_pack) + (formData.loose_units_count || 0)} {formData.unit_type || 'units'}
+              </p>
+              <p className="text-xs text-emerald-600">
+                {formData.whole_packs_count || 0} packs + {formData.loose_units_count || 0} loose {formData.unit_type || 'units'}
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Indications</label>

@@ -739,21 +739,34 @@ export class N8nService {
             console.log('Missing close brackets:', missingCloseBrackets);
             
             // Remove any incomplete trailing content (likely the truncated part)
-            const lastCompleteComma = jsonString.lastIndexOf(',');
-            const lastCompleteQuote = jsonString.lastIndexOf('"');
-            if (lastCompleteComma > lastCompleteQuote) {
-              // Remove incomplete trailing field
-              jsonString = jsonString.substring(0, lastCompleteComma);
-            } else if (jsonString.endsWith('"')) {
-              // Complete string but missing brackets/braces
+            // Handle specific cases like "type":]} or incomplete field values
+            if (jsonString.includes('"type":]}') || jsonString.includes('"type"]') || jsonString.includes('"type":')) {
+              // Remove incomplete type field and close properly
+              const typeIndex = jsonString.lastIndexOf('"type"');
+              if (typeIndex > 0) {
+                // Find the previous complete field (go back to previous comma)
+                const previousComma = jsonString.lastIndexOf(',', typeIndex);
+                if (previousComma > 0) {
+                  jsonString = jsonString.substring(0, previousComma);
+                }
+              }
             } else {
-              // Find last complete field
-              const lastCompleteField = jsonString.lastIndexOf('"');
-              if (lastCompleteField > 0) {
-                const beforeLastField = jsonString.substring(0, lastCompleteField);
-                const lastFieldStart = beforeLastField.lastIndexOf('"');
-                if (lastFieldStart > 0) {
-                  jsonString = jsonString.substring(0, lastFieldStart - 1);
+              const lastCompleteComma = jsonString.lastIndexOf(',');
+              const lastCompleteQuote = jsonString.lastIndexOf('"');
+              if (lastCompleteComma > lastCompleteQuote) {
+                // Remove incomplete trailing field
+                jsonString = jsonString.substring(0, lastCompleteComma);
+              } else if (jsonString.endsWith('"')) {
+                // Complete string but missing brackets/braces
+              } else {
+                // Find last complete field
+                const lastCompleteField = jsonString.lastIndexOf('"');
+                if (lastCompleteField > 0) {
+                  const beforeLastField = jsonString.substring(0, lastCompleteField);
+                  const lastFieldStart = beforeLastField.lastIndexOf('"');
+                  if (lastFieldStart > 0) {
+                    jsonString = jsonString.substring(0, lastFieldStart - 1);
+                  }
                 }
               }
             }
