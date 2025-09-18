@@ -474,8 +474,19 @@ export class N8nService {
         return b.relevance_score - a.relevance_score;
       }); // Sort by relevance with diversity consideration
     
-    console.log(`Filtered ${scoredDrugs.length} drugs from ${drugs.length} total. Top 10 scores:`, 
+    console.log(`Filtered ${scoredDrugs.length} drugs from ${drugs.length} total. Top 10 scores:`,
       scoredDrugs.slice(0, 10).map(d => ({ name: d.drug_name, score: d.relevance_score })));
+
+    console.log('=== DRUG FILTERING DEBUG ===');
+    console.log('Input drugs count:', drugs.length);
+    console.log('Search text:', searchText);
+    console.log('Filtered drugs count:', scoredDrugs.length);
+    console.log('Top 5 drugs after filtering:', scoredDrugs.slice(0, 5).map(d => ({
+      name: d.drug_name,
+      score: d.relevance_score,
+      stock: d.stock_quantity
+    })));
+    console.log('=== END DRUG FILTERING DEBUG ===');
     
     return scoredDrugs;
   }
@@ -495,7 +506,7 @@ export class N8nService {
           const relevantDrugs = this.filterRelevantDrugs(formData.user_drug_inventory, formData.complaint + ' ' + (formData.symptoms || ''));
 
           // Format drug inventory for AI analysis (top 200 with essential info)
-          drugInventory = relevantDrugs
+          const drugList = relevantDrugs
             .slice(0, 200) // Send up to 200 most relevant drugs for better therapy options
             .map(drug => ({
               id: drug.id,
@@ -510,6 +521,11 @@ export class N8nService {
               is_prescription_only: drug.is_prescription_only,
               category: drug.category?.name
             }));
+
+          // Format as readable text for AI
+          drugInventory = drugList.map(drug =>
+            `Drug: ${drug.name}${drug.generic_name ? ` (${drug.generic_name})` : ''}, Form: ${drug.dosage_form || 'N/A'}, Strength: ${drug.strength || 'N/A'}, Stock: ${drug.stock_quantity}, Category: ${drug.category || 'Uncategorized'}${drug.dosage_adults ? `, Adult Dosage: ${drug.dosage_adults}` : ''}`
+          ).join('\n');
         } catch (drugError) {
           console.log('Could not process drug inventory:', drugError);
         }
@@ -610,6 +626,16 @@ export class N8nService {
         ...payload,
         user_drug_inventory: drugInventory?.length ? `[${drugInventory.length} items]` : drugInventory
       });
+
+      // Debug: Log the actual inventory drugs being sent to AI
+      if (drugInventory && drugInventory.length > 0) {
+        console.log('=== INVENTORY DRUGS SENT TO AI ===');
+        console.log('Format: Text-based for AI readability');
+        console.log('First 3 drugs preview:', drugInventory.split('\n').slice(0, 3));
+        console.log('Total drugs in inventory:', drugInventory.split('\n').length);
+      } else {
+        console.log('=== NO INVENTORY DRUGS SENT TO AI ===');
+      }
 
       // Debug: Log all the fields being sent
       console.log('=== FORM DATA DEBUG ===');
