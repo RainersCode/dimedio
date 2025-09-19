@@ -4,7 +4,10 @@ import { useState, useEffect, useRef } from 'react';
 import { Diagnosis, UserDrugInventory } from '@/types/database';
 import { DatabaseService } from '@/lib/database';
 import { DrugInventoryService } from '@/lib/drugInventory';
+import { ModeAwareDrugInventoryService } from '@/lib/modeAwareDrugInventoryService';
+import { ModeAwareDiagnosisService } from '@/lib/modeAwareDiagnosisService';
 import { DrugDispensingService } from '@/lib/drugDispensingService';
+import { useMultiOrgUserMode } from '@/contexts/MultiOrgUserModeContext';
 
 interface DiagnosisEditorProps {
   diagnosis: Diagnosis;
@@ -13,6 +16,7 @@ interface DiagnosisEditorProps {
 }
 
 export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: DiagnosisEditorProps) {
+  const { activeMode, organizationId } = useMultiOrgUserMode();
   const [editedDiagnosis, setEditedDiagnosis] = useState<Diagnosis>({ ...diagnosis });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -21,6 +25,7 @@ export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: Diagnos
   // Drug management states
   const [userDrugInventory, setUserDrugInventory] = useState<UserDrugInventory[]>([]);
   const [drugQuantities, setDrugQuantities] = useState<{[key: string]: number}>({});
+  const [drugDispenseUnits, setDrugDispenseUnits] = useState<{[key: string]: 'packs' | 'tablets'}>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [showDrugDropdown, setShowDrugDropdown] = useState(false);
   const [individuallyDispensed, setIndividuallyDispensed] = useState<{[key: string]: boolean}>({});
@@ -32,34 +37,46 @@ export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: Diagnos
   useEffect(() => {
     const loadDrugInventory = async () => {
       try {
-        const { data: inventory } = await DrugInventoryService.getUserDrugInventory();
-        if (inventory) {
-          setUserDrugInventory(inventory);
+        console.log('Loading drug inventory with mode:', activeMode, 'orgId:', organizationId);
+        const { data, error, mode } = await ModeAwareDrugInventoryService.getDrugInventory(activeMode, organizationId);
+        console.log('Drug inventory response:', { data, error, mode });
+        if (data) {
+          console.log('Setting user drug inventory:', data);
+          setUserDrugInventory(data);
+        } else if (error) {
+          console.error('Error loading drug inventory:', error);
+        } else {
+          console.log('No inventory data received');
         }
       } catch (error) {
         console.warn('Could not load drug inventory:', error);
       }
     };
-    
-    loadDrugInventory();
-  }, []);
 
-  // Initialize drug quantities from existing diagnosis
+    if (activeMode && organizationId) {
+      loadDrugInventory();
+    }
+  }, [activeMode, organizationId]);
+
+  // Initialize drug quantities and dispense units from existing diagnosis
   useEffect(() => {
     const initializeQuantities = () => {
       const quantities: {[key: string]: number} = {};
-      
+      const units: {[key: string]: 'packs' | 'tablets'} = {};
+
       // Initialize from inventory_drugs
       if (editedDiagnosis.inventory_drugs) {
         editedDiagnosis.inventory_drugs.forEach((drug: any) => {
           const key = drug.drug_name;
           quantities[key] = drug.dispense_quantity || 1;
+          units[key] = drug.dispense_unit || 'packs';
         });
       }
-      
+
       setDrugQuantities(quantities);
+      setDrugDispenseUnits(units);
     };
-    
+
     initializeQuantities();
   }, [editedDiagnosis.inventory_drugs]);
 
@@ -93,6 +110,56 @@ export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: Diagnos
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Helper functions for dispense units
+  const getDispenseUnit = (drugKey: string) => {
+    return drugDispenseUnits[drugKey] || 'packs'; // Default to packs
+  };
+
+  const getDispenseUnitLabel = (drugKey: string) => {
+    const unit = getDispenseUnit(drugKey);
+    const quantity = drugQuantities[drugKey] || 1;
+
+    if (unit === 'packs') {
+      return quantity === 1 ? 'pack' : 'packs';
+    } else {
+      return 'tablets/ampules';
+    }
+  };
+
+  const toggleDispenseUnit = (drugKey: string) => {
+    setDrugDispenseUnits(prev => ({
+      ...prev,
+      [drugKey]: prev[drugKey] === 'packs' ? 'tablets' : 'packs'
+    }));
+  };
+
+  const getCurrentStock = (drugName: string, drugId?: string) => {
+    console.log('Looking for stock for drug:', drugName, 'with ID:', drugId);
+    console.log('Available inventory:', userDrugInventory.map(d => ({ name: d.drug_name, id: d.id, stock: d.stock_quantity })));
+
+    const matchingInventoryDrug = userDrugInventory.find(invDrug => {
+      // First try to match by ID if available
+      if (drugId && invDrug.id === drugId) {
+        console.log('Found drug by ID match:', invDrug);
+        return true;
+      }
+
+      // Fall back to name matching
+      const normalizeName = (name: string) => name?.toLowerCase().replace(/\s+/g, ' ').trim() || '';
+      const nameMatch = normalizeName(invDrug.drug_name) === normalizeName(drugName);
+      if (nameMatch) {
+        console.log('Found drug by name match:', invDrug);
+        return true;
+      }
+
+      return false;
+    });
+
+    const stock = matchingInventoryDrug ? matchingInventoryDrug.stock_quantity : 0;
+    console.log('Final stock for', drugName, ':', stock);
+    return stock;
+  };
 
   const updateDispensingRecords = async (updatedDiagnosis: Diagnosis) => {
     console.log('Updating dispensing records for diagnosis:', diagnosis.id);
@@ -204,10 +271,11 @@ export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: Diagnos
       setSaving(true);
       setError('');
 
-      // Merge drug quantities into inventory_drugs before saving
+      // Merge drug quantities and dispense units into inventory_drugs before saving
       const updatedInventoryDrugs = editedDiagnosis.inventory_drugs?.map((drug: any) => ({
         ...drug,
-        dispense_quantity: drugQuantities[drug.drug_name] || 1
+        dispense_quantity: drugQuantities[drug.drug_name] || 1,
+        dispense_unit: drugDispenseUnits[drug.drug_name] || 'packs'
       })) || [];
 
       const diagnosisToSave = {
@@ -215,10 +283,11 @@ export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: Diagnos
         inventory_drugs: updatedInventoryDrugs
       };
 
-      const { data, error: updateError } = await DatabaseService.updateDiagnosisManually(
+      const { data, error: updateError } = await ModeAwareDiagnosisService.updateDiagnosis(
         diagnosis.id,
         diagnosisToSave,
-        undefined, // Let the service get the user email
+        activeMode,
+        organizationId,
         'Patient History Edit',
         editorName
       );
@@ -510,7 +579,7 @@ export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: Diagnos
                           <div className="flex items-center gap-3 mb-2">
                             <h6 className="font-medium text-emerald-900">{drug.drug_name}</h6>
                             <span className="px-2 py-1 text-xs bg-emerald-100 text-emerald-800 rounded">
-                              Stock: {drug.stock_quantity || 'N/A'}
+                              Stock: {getCurrentStock(drug.drug_name, drug.drug_id)}
                             </span>
                           </div>
                           
@@ -531,22 +600,32 @@ export default function DiagnosisEditor({ diagnosis, onSave, onCancel }: Diagnos
                                     <span className="w-20 px-2 py-1 bg-gray-100 border border-gray-300 rounded text-gray-700 text-center">
                                       {drugQuantities[drug.drug_name] || 1}
                                     </span>
-                                    <span className="text-emerald-600 text-xs">units</span>
+                                    <span className="text-emerald-600 text-xs">{getDispenseUnitLabel(drug.drug_name)}</span>
                                     <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full">
                                       ✓ Dispensed
                                     </span>
                                   </div>
                                 ) : (
-                                  <>
+                                  <div className="flex items-center gap-2 p-2 border border-emerald-300 rounded-lg bg-emerald-50">
                                     <input
                                       type="number"
                                       min="1"
                                       value={drugQuantities[drug.drug_name] || 1}
                                       onChange={(e) => updateDrugQuantity(drug.drug_name, parseInt(e.target.value) || 1)}
-                                      className="w-20 px-2 py-1 border border-emerald-300 rounded focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                      className="w-16 px-2 py-1 border border-emerald-300 rounded text-center font-semibold"
                                     />
-                                    <span className="text-emerald-600 text-xs">units</span>
-                                  </>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleDispenseUnit(drug.drug_name)}
+                                      className="flex items-center gap-1 text-emerald-800 font-semibold hover:bg-emerald-200 px-2 py-1 rounded transition-colors border border-emerald-400 bg-white shadow-sm text-sm"
+                                      title={`Click to switch units: ${getDispenseUnitLabel(drug.drug_name)}`}
+                                    >
+                                      <span>{getDispenseUnitLabel(drug.drug_name)}</span>
+                                      <svg className="w-3 h-3 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                      </svg>
+                                    </button>
+                                  </div>
                                 )}
                               </div>
                             </div>

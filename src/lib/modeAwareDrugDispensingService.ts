@@ -13,6 +13,113 @@ export interface ModeAwareDispensingRecord {
   notes?: string;
 }
 
+// Helper function to update organization inventory with pack tracking
+async function updateOrganizationInventoryWithPackTracking(
+  drugId: string,
+  organizationId: string,
+  quantityChange: number,
+  operation: 'add' | 'subtract'
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get current inventory
+    const { data: inventoryData, error: inventoryError } = await supabase
+      .from('organization_drug_inventory')
+      .select('stock_quantity, whole_packs_count, loose_units_count, units_per_pack, unit_type')
+      .eq('id', drugId)
+      .eq('organization_id', organizationId)
+      .single();
+
+    if (inventoryError) {
+      return { success: false, error: `Could not find inventory record: ${inventoryError.message}` };
+    }
+
+    const currentStock = inventoryData.stock_quantity || 0;
+    const currentWholePacks = inventoryData.whole_packs_count || 0;
+    const currentLooseUnits = inventoryData.loose_units_count || 0;
+    const unitsPerPack = inventoryData.units_per_pack || 1;
+
+    // Calculate based on whether we have pack tracking data
+    if (inventoryData.units_per_pack && (inventoryData.whole_packs_count !== null || inventoryData.loose_units_count !== null)) {
+      // Use pack tracking logic
+      let newWholePacks = currentWholePacks;
+      let newLooseUnits = currentLooseUnits;
+
+      if (operation === 'subtract') {
+        const quantityToSubtract = Math.abs(quantityChange);
+        let remainingToSubtract = quantityToSubtract;
+
+        console.log(`🔢 Pack tracking calculation: Need to subtract ${quantityToSubtract} units`);
+        console.log(`📦 Current inventory: ${newWholePacks} packs + ${newLooseUnits} loose units`);
+
+        // First, subtract from loose units
+        if (newLooseUnits >= remainingToSubtract) {
+          newLooseUnits -= remainingToSubtract;
+          remainingToSubtract = 0;
+          console.log(`✅ Subtracted from loose units: ${newLooseUnits} remaining`);
+        } else {
+          remainingToSubtract -= newLooseUnits;
+          newLooseUnits = 0;
+          console.log(`📦 Used all loose units, still need ${remainingToSubtract} units`);
+
+          // Then subtract from whole packs (opening them as needed)
+          // Only open the minimum number of packs needed
+          const packsToOpen = Math.ceil(remainingToSubtract / unitsPerPack);
+          if (newWholePacks >= packsToOpen) {
+            newWholePacks -= packsToOpen;
+            // Calculate remaining loose units after taking what we need
+            const totalUnitsFromOpenedPacks = packsToOpen * unitsPerPack;
+            newLooseUnits = totalUnitsFromOpenedPacks - remainingToSubtract;
+            console.log(`📦 Opened ${packsToOpen} packs (${totalUnitsFromOpenedPacks} units), used ${remainingToSubtract} units, ${newLooseUnits} loose units remaining`);
+          } else {
+            // Not enough inventory
+            return { success: false, error: `Insufficient inventory. Need ${quantityToSubtract} units, have ${currentWholePacks * unitsPerPack + currentLooseUnits} units.` };
+          }
+        }
+      }
+
+      // Update with new pack counts and maintain stock_quantity for backward compatibility
+      const newStockQuantity = newWholePacks; // stock_quantity represents whole packs
+      const { error: updateError } = await supabase
+        .from('organization_drug_inventory')
+        .update({
+          stock_quantity: newStockQuantity,
+          whole_packs_count: newWholePacks,
+          loose_units_count: newLooseUnits
+        })
+        .eq('id', drugId)
+        .eq('organization_id', organizationId);
+
+      if (updateError) {
+        return { success: false, error: `Failed to update inventory: ${updateError.message}` };
+      }
+
+      console.log(`✅ Updated organization inventory: ${currentWholePacks} packs → ${newWholePacks} packs, ${currentLooseUnits} loose → ${newLooseUnits} loose`);
+    } else {
+      // Fallback to simple stock_quantity logic
+      const newStock = operation === 'subtract'
+        ? Math.max(0, currentStock - Math.abs(quantityChange))
+        : currentStock + Math.abs(quantityChange);
+
+      const { error: updateError } = await supabase
+        .from('organization_drug_inventory')
+        .update({ stock_quantity: newStock })
+        .eq('id', drugId)
+        .eq('organization_id', organizationId);
+
+      if (updateError) {
+        return { success: false, error: `Failed to update inventory: ${updateError.message}` };
+      }
+
+      console.log(`✅ Updated organization inventory (simple): ${currentStock} → ${newStock}`);
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error in updateOrganizationInventoryWithPackTracking:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
 export class ModeAwareDrugDispensingService {
   // Record drug dispensing based on active mode
   static async recordDispensing(
@@ -132,48 +239,12 @@ export class ModeAwareDrugDispensingService {
           is_write_off: false
         });
 
-        // Update organization drug inventory stock (both stock_quantity and pack tracking)
+        // Update organization drug inventory using pack-aware tracking
         try {
-          // First get current inventory data including pack tracking fields
-          const { data: currentInventory, error: fetchError } = await supabase
-            .from('organization_drug_inventory')
-            .select('stock_quantity, whole_packs_count, loose_units_count, units_per_pack')
-            .eq('id', record.drugId)
-            .eq('organization_id', organizationId)
-            .single();
+          const updateResult = await updateOrganizationInventoryWithPackTracking(record.drugId, organizationId, record.quantity, 'subtract');
 
-          if (fetchError) {
-            console.error('Error fetching current organization inventory:', fetchError);
-          } else if (currentInventory) {
-            // Update stock_quantity
-            const newStockQuantity = Math.max(0, currentInventory.stock_quantity - record.quantity);
-
-            // Prepare update object
-            const updateData: any = {
-              stock_quantity: newStockQuantity
-            };
-
-            // If pack tracking is enabled, also update whole_packs_count
-            if (currentInventory.whole_packs_count !== null && currentInventory.whole_packs_count !== undefined) {
-              const newWholePacks = Math.max(0, currentInventory.whole_packs_count - record.quantity);
-              updateData.whole_packs_count = newWholePacks;
-              console.log(`Updating pack count: ${currentInventory.whole_packs_count} - ${record.quantity} = ${newWholePacks}`);
-            }
-
-            const { error: updateError } = await supabase
-              .from('organization_drug_inventory')
-              .update(updateData)
-              .eq('id', record.drugId)
-              .eq('organization_id', organizationId);
-
-            if (updateError) {
-              console.error('Error updating organization drug inventory:', updateError);
-            } else {
-              console.log(`Updated organization inventory: stock ${currentInventory.stock_quantity} -> ${newStockQuantity}`);
-              if (updateData.whole_packs_count !== undefined) {
-                console.log(`Updated pack count: ${currentInventory.whole_packs_count} -> ${updateData.whole_packs_count}`);
-              }
-            }
+          if (!updateResult.success) {
+            console.error('❌ Error updating organization inventory:', updateResult.error);
           }
         } catch (inventoryError) {
           console.error('Failed to update organization inventory:', inventoryError);

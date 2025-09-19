@@ -25,7 +25,7 @@ export default function DrugDispensing() {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [deletedItems, setDeletedItems] = useState<{[recordId: string]: {patientDeleted: boolean, diagnosisDeleted: boolean}}>({});
-  const [inventoryData, setInventoryData] = useState<{[drugId: string]: number}>({});
+  const [inventoryData, setInventoryData] = useState<{[drugId: string]: {wholePacks: number, looseUnits: number, unitsPerPack: number}}>({});
   
   // Filters
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
@@ -55,7 +55,65 @@ export default function DrugDispensing() {
   // Refs for manual form dropdowns
   const manualDrugDropdownRef = useRef<HTMLDivElement>(null);
   const manualPatientDropdownRef = useRef<HTMLDivElement>(null);
-  
+
+  // Helper function to extract dispensing info from notes
+  const getDispenseInfoFromNotes = (notes: string): { description: string, hasMultipleUnits: boolean } => {
+    if (!notes) return { description: '', hasMultipleUnits: false };
+
+    // Look for new format: "Dispensed: X pack + Y tablets/ampules" or "Dispensed: X packs + Y tablets/ampules"
+    const multiUnitMatch = notes.match(/Dispensed:\s*(.+(?:pack|tablets|ampules).+(?:pack|tablets|ampules))/i);
+    if (multiUnitMatch) {
+      return { description: multiUnitMatch[1].trim(), hasMultipleUnits: true };
+    }
+
+    // Look for single unit patterns: "Dispensed: X tablets" or "Dispensed: X packs"
+    const singleUnitMatch = notes.match(/Dispensed:\s*(\d+\s*(?:pack|packs|tablets?|ampules?)(?:\/ampules)?)/i);
+    if (singleUnitMatch) {
+      return { description: singleUnitMatch[1].trim(), hasMultipleUnits: false };
+    }
+
+    // Fallback for old format
+    return { description: '', hasMultipleUnits: false };
+  };
+
+  const getUnitLabel = (quantity: number, unit: 'packs' | 'tablets'): string => {
+    if (unit === 'tablets') {
+      return 'tablets/ampules';
+    }
+    return quantity === 1 ? 'pack' : 'packs';
+  };
+
+  // Manual form helper functions
+  const getTotalQuantityForDispensing = (): number => {
+    // We need to convert packs to individual units based on pack size
+    // For now, we'll assume a default pack size if not available
+    // This should ideally get the actual pack size from the selected drug
+    const defaultUnitsPerPack = selectedDrug?.units_per_pack || 1;
+
+    const totalFromPacks = manualPacksQuantity * defaultUnitsPerPack;
+    const totalFromTablets = manualTabletsQuantity;
+
+    return totalFromPacks + totalFromTablets;
+  };
+
+  const getDispenseDescription = (): string => {
+    const parts: string[] = [];
+
+    if (manualPacksQuantity > 0) {
+      parts.push(`${manualPacksQuantity} ${manualPacksQuantity === 1 ? 'pack' : 'packs'}`);
+    }
+
+    if (manualTabletsQuantity > 0) {
+      parts.push(`${manualTabletsQuantity} tablets/ampules`);
+    }
+
+    return parts.length > 0 ? parts.join(' + ') : '0 units';
+  };
+
+  const isValidQuantity = (): boolean => {
+    return manualPacksQuantity > 0 || manualTabletsQuantity > 0;
+  };
+
   // Manual dispensing form
   const [showManualForm, setShowManualForm] = useState(false);
   const [drugSearch, setDrugSearch] = useState('');
@@ -66,7 +124,8 @@ export default function DrugDispensing() {
   const [patientSuggestions, setPatientSuggestions] = useState<PatientProfile[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
   const [showPatientDropdownManual, setShowPatientDropdownManual] = useState(false);
-  const [quantity, setQuantity] = useState<number>(1);
+  const [manualPacksQuantity, setManualPacksQuantity] = useState<number>(0);
+  const [manualTabletsQuantity, setManualTabletsQuantity] = useState<number>(0);
   const [notes, setNotes] = useState('');
   const [addingDispensing, setAddingDispensing] = useState(false);
 
@@ -138,13 +197,15 @@ export default function DrugDispensing() {
         return;
       }
 
-      // Create a mapping of drug_id to stock_quantity (using whole_packs_count as primary stock indicator)
-      const inventoryMap: {[drugId: string]: number} = {};
+      // Create a mapping of drug_id to inventory details (whole packs, loose units, and units per pack)
+      const inventoryMap: {[drugId: string]: {wholePacks: number, looseUnits: number, unitsPerPack: number}} = {};
       if (inventory) {
         inventory.forEach(item => {
-          // Prefer whole_packs_count if available, otherwise fall back to stock_quantity
-          const stock = item.whole_packs_count !== null ? item.whole_packs_count : (item.stock_quantity || 0);
-          inventoryMap[item.id] = stock;
+          inventoryMap[item.id] = {
+            wholePacks: item.whole_packs_count !== null ? item.whole_packs_count : (item.stock_quantity || 0),
+            looseUnits: item.loose_units_count || 0,
+            unitsPerPack: item.units_per_pack || 1
+          };
         });
       }
       setInventoryData(inventoryMap);
@@ -595,8 +656,8 @@ export default function DrugDispensing() {
 
   // Handle manual dispensing submission
   const handleManualDispensing = async () => {
-    if (!selectedDrug || quantity < 1) {
-      setError('Please select a drug and enter quantity');
+    if (!selectedDrug || !isValidQuantity()) {
+      setError('Please select a drug and enter at least 1 pack or 1 tablet/ampule');
       return;
     }
 
@@ -605,11 +666,25 @@ export default function DrugDispensing() {
       setError('');
 
       // Use mode-aware dispensing service for manual entries
+      const dispenseDescription = getDispenseDescription();
+      const totalQuantity = getTotalQuantityForDispensing();
+      const baseNotes = notes || 'Manually added to dispensing history';
+      const fullNotes = `${baseNotes}. Dispensed: ${dispenseDescription}.`;
+
+      console.log('Manual dispensing calculation:', {
+        selectedDrug: selectedDrug?.drug_name,
+        unitsPerPack: selectedDrug?.units_per_pack,
+        manualPacksQuantity,
+        manualTabletsQuantity,
+        totalQuantity,
+        dispenseDescription
+      });
+
       const dispensingRecord = {
         drugId: selectedDrug.id,
         drugName: selectedDrug.drug_name,
-        quantity: quantity,
-        notes: notes || 'Manually added to dispensing history'
+        quantity: totalQuantity,
+        notes: fullNotes
       };
 
       const { error } = await ModeAwareDrugDispensingService.recordDispensing(
@@ -633,7 +708,8 @@ export default function DrugDispensing() {
       // Reset form but keep it open
       setSelectedDrug(null);
       setSelectedPatient(null);
-      setQuantity(1);
+      setManualPacksQuantity(0);
+      setManualTabletsQuantity(0);
       setNotes('');
       setDrugSearch('');
       setPatientSearch('');
@@ -959,15 +1035,59 @@ export default function DrugDispensing() {
 
                 {/* Quantity */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Quantity (packs) *</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={quantity}
-                    onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                    placeholder="Number of packs to dispense"
-                  />
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Dispense Quantity *</label>
+                  <div className="space-y-3 p-3 border border-slate-300 rounded-lg bg-slate-50">
+                    {/* Packs */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <input
+                          type="number"
+                          min="0"
+                          value={manualPacksQuantity}
+                          onChange={(e) => setManualPacksQuantity(parseInt(e.target.value) || 0)}
+                          className="w-16 px-2 py-1 border border-slate-300 rounded text-center font-semibold"
+                        />
+                        <span className="text-slate-700 font-medium">
+                          {manualPacksQuantity === 1 ? 'pack' : 'packs'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Plus sign */}
+                    <div className="flex items-center justify-center">
+                      <span className="text-slate-400 font-bold text-lg">+</span>
+                    </div>
+
+                    {/* Tablets */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <input
+                          type="number"
+                          min="0"
+                          value={manualTabletsQuantity}
+                          onChange={(e) => setManualTabletsQuantity(parseInt(e.target.value) || 0)}
+                          className="w-16 px-2 py-1 border border-slate-300 rounded text-center font-semibold"
+                        />
+                        <span className="text-slate-700 font-medium">tablets/ampules</span>
+                      </div>
+                    </div>
+
+                    {/* Total display */}
+                    {(manualPacksQuantity > 0 || manualTabletsQuantity > 0) && (
+                      <div className="pt-2 border-t border-slate-300">
+                        <div className="text-xs text-slate-600">
+                          <span className="font-medium">Total: </span>
+                          <span className="text-slate-800 font-semibold">{getDispenseDescription()}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {!isValidQuantity() && (
+                      <div className="text-xs text-red-600 font-medium">
+                        Please enter at least 1 pack or 1 tablet/ampule
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Notes */}
@@ -987,7 +1107,7 @@ export default function DrugDispensing() {
               <div className="flex gap-2">
                 <button
                   onClick={handleManualDispensing}
-                  disabled={!selectedDrug || quantity < 1 || addingDispensing}
+                  disabled={!selectedDrug || !isValidQuantity() || addingDispensing}
                   className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {addingDispensing ? (
@@ -1568,22 +1688,75 @@ export default function DrugDispensing() {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-900">
-                        <span className="font-medium">{record.quantity_dispensed}</span> pack{record.quantity_dispensed !== 1 ? 's' : ''}
+                        {(() => {
+                          const dispenseInfo = getDispenseInfoFromNotes(record.notes || '');
+
+                          if (dispenseInfo.hasMultipleUnits && dispenseInfo.description) {
+                            // Show the exact description from notes for multi-unit dispensing
+                            return (
+                              <span className="font-medium">{dispenseInfo.description}</span>
+                            );
+                          } else if (dispenseInfo.description) {
+                            // Show the description from notes for single unit dispensing
+                            return (
+                              <span className="font-medium">{dispenseInfo.description}</span>
+                            );
+                          } else {
+                            // Fallback to old logic for legacy records
+                            return (
+                              <>
+                                <span className="font-medium">{record.quantity_dispensed}</span> packs
+                              </>
+                            );
+                          }
+                        })()}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">
                         {record.drug_id && inventoryData[record.drug_id] !== undefined ? (
-                          <div className="flex items-center gap-2">
-                            <span className={`font-medium ${inventoryData[record.drug_id] === 0 ? 'text-red-600' : inventoryData[record.drug_id] < 10 ? 'text-orange-600' : 'text-green-600'}`}>
-                              {inventoryData[record.drug_id]}
-                            </span>
-                            <span className="text-slate-400 text-xs">pack{inventoryData[record.drug_id] !== 1 ? 's' : ''}</span>
+                          <div className="flex flex-col gap-1">
+                            {(() => {
+                              const inventory = inventoryData[record.drug_id];
+                              const totalPacks = inventory.wholePacks;
+                              const looseUnits = inventory.looseUnits;
+                              const unitsPerPack = inventory.unitsPerPack;
+
+                              const getStockColor = (packs: number, loose: number) => {
+                                const total = packs + (loose > 0 ? 1 : 0); // Count partial packs as having stock
+                                return total === 0 ? 'text-red-600' : total < 10 ? 'text-orange-600' : 'text-green-600';
+                              };
+
+                              return (
+                                <>
+                                  <div className="flex items-center gap-1">
+                                    <span className={`font-medium ${getStockColor(totalPacks, looseUnits)}`}>
+                                      {totalPacks}
+                                    </span>
+                                    <span className="text-slate-400 text-xs whitespace-nowrap">
+                                      {totalPacks === 1 ? 'pack' : 'packs'}
+                                    </span>
+                                  </div>
+                                  {looseUnits > 0 && unitsPerPack > 1 && (
+                                    <div className="flex items-center gap-1">
+                                      <span className="font-medium text-orange-600 text-xs">
+                                        +{looseUnits}
+                                      </span>
+                                      <span className="text-slate-400 text-xs whitespace-nowrap">
+                                        loose units
+                                      </span>
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                         ) : (
                           <span className="text-slate-400 italic text-xs">Not in inventory</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">
-                        {record.notes || '—'}
+                      <td className="px-6 py-4 text-sm text-slate-600 max-w-xs">
+                        <div className="truncate" title={record.notes || ''}>
+                          {record.notes || '—'}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm">
                         <button
@@ -1591,10 +1764,16 @@ export default function DrugDispensing() {
                             const confirmed = window.confirm(
                               `⚠️ Are you sure you want to delete this dispensing record?\n\n` +
                               `Drug: ${record.drug_name || 'Unknown Drug'}\n` +
-                              `Quantity: ${record.quantity_dispensed || 1} pack${(record.quantity_dispensed || 1) !== 1 ? 's' : ''}\n` +
+                              `Quantity: ${(() => {
+                                const dispenseInfo = getDispenseInfoFromNotes(record.notes || '');
+                                return dispenseInfo.description || `${record.quantity_dispensed || 1} packs`;
+                              })()}\n` +
                               `Patient: ${record.patient_name || 'Unknown Patient'}\n` +
                               `Date: ${new Date(record.dispensed_date).toLocaleDateString()}\n\n` +
-                              `⚠️ IMPORTANT: Deleting this record will also REDUCE your current inventory by ${record.quantity_dispensed || 1} pack${(record.quantity_dispensed || 1) !== 1 ? 's' : ''} of ${record.drug_name || 'this drug'}.\n\n` +
+                              `⚠️ IMPORTANT: Deleting this record will also REDUCE your current inventory by ${(() => {
+                                const dispenseInfo = getDispenseInfoFromNotes(record.notes || '');
+                                return dispenseInfo.description || `${record.quantity_dispensed || 1} packs`;
+                              })()} of ${record.drug_name || 'this drug'}.\n\n` +
                               `This action cannot be undone.`
                             );
 

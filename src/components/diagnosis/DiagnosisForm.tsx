@@ -621,7 +621,18 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   };
 
   const getDispenseUnitLabel = (drugKey: string) => {
-    return getDispenseUnit(drugKey) === 'packs' ? 'packs' : 'tablets';
+    const unit = getDispenseUnit(drugKey);
+    const quantity = drugQuantities[drugKey] || 1;
+
+    if (unit === 'packs') {
+      return quantity === 1 ? 'pack' : 'packs';
+    } else {
+      return 'tablets/ampules';
+    }
+  };
+
+  const getNextDispenseUnit = (drugKey: string) => {
+    return getDispenseUnit(drugKey) === 'packs' ? 'tablets/ampules' : 'packs';
   };
 
   const updateEditedField = (field: string, value: any) => {
@@ -2158,24 +2169,32 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                           />
                         </div>
                         <div>
-                          <label className="font-medium text-green-800 block mb-1">Dispense Quantity:</label>
-                          <div className="flex items-center gap-2">
+                          <label className="font-medium text-green-800 block mb-2">Dispense Quantity:</label>
+                          <div className="flex items-center gap-3 p-3 border border-green-300 rounded-lg bg-green-50">
                             <input
                               type="number"
                               min="1"
                               max="99"
                               value={drugQuantities[`inventory_${index}`] || 1}
                               onChange={(e) => updateDrugQuantity(`inventory_${index}`, parseInt(e.target.value) || 1)}
-                              className="w-20 px-2 py-1 border border-green-300 rounded text-green-800 text-center"
+                              className="w-16 px-2 py-1 border border-green-300 rounded text-green-800 text-center font-semibold text-lg"
                             />
-                            <button
-                              type="button"
-                              onClick={() => toggleDispenseUnit(`inventory_${index}`)}
-                              className="text-green-800 font-medium hover:bg-green-100 px-2 py-1 rounded transition-colors border border-green-300"
-                              title={`Click to switch to ${getDispenseUnit(`inventory_${index}`) === 'packs' ? 'tablets' : 'packs'}`}
-                            >
-                              {getDispenseUnitLabel(`inventory_${index}`)}
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleDispenseUnit(`inventory_${index}`)}
+                                className="flex items-center gap-1 text-green-800 font-semibold hover:bg-green-200 px-3 py-2 rounded-md transition-colors border border-green-400 bg-white shadow-sm"
+                                title={`Click to cycle units: ${getDispenseUnitLabel(`inventory_${index}`)} → ${getNextDispenseUnit(`inventory_${index}`)}`}
+                              >
+                                <span>{getDispenseUnitLabel(`inventory_${index}`)}</span>
+                                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                              </button>
+                              <span className="text-xs text-green-600 font-medium">
+                                Click to cycle units
+                              </span>
+                            </div>
                           </div>
                         </div>
                         <div className="flex items-center">
@@ -2244,22 +2263,25 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                           <div className="flex items-center gap-2 mt-3 pt-2 border-t border-green-200">
                             <label className="font-medium text-green-800">Will dispense:</label>
                             {isEditing ? (
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-3 p-2 border border-green-300 rounded-lg bg-green-50">
                                 <input
                                   type="number"
                                   min="1"
                                   max="99"
                                   value={drugQuantities[`inventory_${index}`] || 1}
                                   onChange={(e) => updateDrugQuantity(`inventory_${index}`, parseInt(e.target.value) || 1)}
-                                  className="w-16 px-2 py-1 border border-green-300 rounded text-green-800 font-medium text-center"
+                                  className="w-14 px-2 py-1 border border-green-300 rounded text-green-800 font-semibold text-center"
                                 />
                                 <button
                                   type="button"
                                   onClick={() => toggleDispenseUnit(`inventory_${index}`)}
-                                  className="text-green-800 font-medium hover:bg-green-100 px-2 py-1 rounded transition-colors border border-green-300"
-                                  title={`Click to switch to ${getDispenseUnit(`inventory_${index}`) === 'packs' ? 'tablets' : 'packs'}`}
+                                  className="flex items-center gap-1 text-green-800 font-semibold hover:bg-green-200 px-2 py-1 rounded transition-colors border border-green-400 bg-white shadow-sm text-sm"
+                                  title={`Click to cycle units: ${getDispenseUnitLabel(`inventory_${index}`)} → ${getNextDispenseUnit(`inventory_${index}`)}`}
                                 >
-                                  {getDispenseUnitLabel(`inventory_${index}`)}
+                                  <span>{getDispenseUnitLabel(`inventory_${index}`)}</span>
+                                  <svg className="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                  </svg>
                                 </button>
                               </div>
                             ) : (

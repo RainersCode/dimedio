@@ -387,11 +387,33 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
   const getDrugQuantityInfo = (diagnosisId: string, drugIndex: number) => {
     const drugKey = `${diagnosisId}-${drugIndex}`;
     const customQuantity = drugQuantities[drugKey];
+
     // Migrate old 'units' to 'tablets' for backwards compatibility
     if (customQuantity && (customQuantity.unit as any) === 'units') {
       return { quantity: customQuantity.quantity, unit: 'tablets' as const };
     }
-    return customQuantity || { quantity: 1, unit: 'packs' as const };
+
+    // If we have a custom quantity setting, use it
+    if (customQuantity) {
+      return customQuantity;
+    }
+
+    // Check if there's saved dispense unit information in the diagnosis data
+    if (patient?.diagnoses) {
+      const diagnosis = patient.diagnoses.find(d => d.id === diagnosisId);
+      if (diagnosis?.inventory_drugs && diagnosis.inventory_drugs[drugIndex]) {
+        const drug = diagnosis.inventory_drugs[drugIndex];
+        if (drug.dispense_unit && drug.dispense_quantity) {
+          return {
+            quantity: drug.dispense_quantity,
+            unit: drug.dispense_unit as 'packs' | 'tablets'
+          };
+        }
+      }
+    }
+
+    // Default fallback
+    return { quantity: 1, unit: 'packs' as const };
   };
 
   const setDrugQuantityInfo = (diagnosisId: string, drugIndex: number, quantity: number, unit: 'packs' | 'tablets') => {
@@ -878,7 +900,7 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
                                               className="text-xs bg-transparent border-none outline-none"
                                             >
                                               <option value="packs">pack{displayQuantity !== 1 ? 's' : ''}</option>
-                                              <option value="tablets">tablet{displayQuantity !== 1 ? 's' : ''}</option>
+                                              <option value="tablets">tablets/ampules</option>
                                             </select>
                                             <button
                                               onClick={() => setEditingDrugQuantity(prev => ({ ...prev, [drugKey]: false }))}
@@ -890,7 +912,7 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
                                         ) : (
                                           <div className="flex items-center gap-1">
                                             <span className="px-3 py-1 text-xs bg-emerald-600 text-white rounded-full font-medium">
-                                              {displayQuantity} {displayUnit === 'packs' ? `pack${displayQuantity !== 1 ? 's' : ''}` : `tablet${displayQuantity !== 1 ? 's' : ''}`}
+                                              {displayQuantity} {displayUnit === 'packs' ? `pack${displayQuantity !== 1 ? 's' : ''}` : 'tablets/ampules'}
                                             </span>
                                             <button
                                               onClick={() => setEditingDrugQuantity(prev => ({ ...prev, [drugKey]: true }))}
@@ -950,7 +972,7 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3a2 2 0 012-2h4a2 2 0 012 2v4m-6 0V6a2 2 0 112 0v1m-6 0h12m-6 0v7m0-7V6a2 2 0 012-2 2 2 0 012 2v1" />
                                             </svg>
-                                            Dispense {displayQuantity} {displayUnit === 'packs' ? `pack${displayQuantity !== 1 ? 's' : ''}` : `unit${displayQuantity !== 1 ? 's' : ''}`}
+                                            Dispense {displayQuantity} {displayUnit === 'packs' ? `pack${displayQuantity !== 1 ? 's' : ''}` : 'tablets/ampules'}
                                           </>
                                         )}
                                       </button>
