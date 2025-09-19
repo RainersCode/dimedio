@@ -37,6 +37,8 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
   const [editingDiagnosis, setEditingDiagnosis] = useState<Diagnosis | null>(null);
   const [dispensingIndividualDrug, setDispensingIndividualDrug] = useState<{[key: string]: boolean}>({});
   const [individualDrugDispensed, setIndividualDrugDispensed] = useState<{[key: string]: boolean}>({});
+  const [editingDrugQuantity, setEditingDrugQuantity] = useState<{[key: string]: boolean}>({});
+  const [drugQuantities, setDrugQuantities] = useState<{[key: string]: {quantity: number, unit: 'packs' | 'tablets'}}>({});
 
   useEffect(() => {
     if (user && params.id) {
@@ -191,8 +193,9 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
 
       // Match inventory drugs by name to find their IDs from userDrugInventory
       const dispensings = [];
-      
-      for (const drug of diagnosis.inventory_drugs) {
+
+      for (let i = 0; i < diagnosis.inventory_drugs.length; i++) {
+        const drug = diagnosis.inventory_drugs[i];
         console.log('Processing drug:', drug);
         
         // Try to find the drug ID from drugInventory by matching drug name
@@ -226,13 +229,16 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
           );
         });
         
+        // Get the custom quantity setting for this drug, or default to 1 pack
+        const { quantity, unit } = getDrugQuantityInfo(diagnosis.id, i);
+
         if (matchingInventoryDrug) {
           console.log('Found matching inventory drug:', matchingInventoryDrug);
           dispensings.push({
             drugId: matchingInventoryDrug.id,
             drugName: drug.drug_name, // Store the original drug name from diagnosis
-            quantity: extractQuantityFromDosage(drug.dosage) || 1,
-            notes: `Prescribed for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}`
+            quantity: quantity,
+            notes: `Prescribed for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}. Dispensed: ${quantity} ${unit}.`
           });
         } else {
           console.warn('Could not find matching inventory drug for:', drug.drug_name);
@@ -241,8 +247,8 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
           dispensings.push({
             drugId: null, // No inventory drug ID
             drugName: drug.drug_name, // Store the drug name from diagnosis
-            quantity: extractQuantityFromDosage(drug.dosage) || 1,
-            notes: `Prescribed for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}. Note: Drug not found in current inventory.`
+            quantity: quantity,
+            notes: `Prescribed for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}. Dispensed: ${quantity} ${unit}. Note: Drug not found in current inventory.`
           });
         }
       }
@@ -327,11 +333,14 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
         );
       });
 
+      // Get the custom quantity setting for this drug
+      const { quantity, unit } = getDrugQuantityInfo(diagnosis.id, drugIndex);
+
       const dispensing = {
         drugId: matchingInventoryDrug ? matchingInventoryDrug.id : null,
         drugName: drug.drug_name,
-        quantity: drug.dispense_quantity || 1,
-        notes: `Individual dispensing for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}`
+        quantity: quantity,
+        notes: `Individual dispensing for: ${diagnosis.complaint}. Duration: ${drug.duration || 'Not specified'}. Dispensed: ${quantity} ${unit}.`
       };
 
       const { error } = await ModeAwareDrugDispensingService.recordDispensing(
@@ -369,49 +378,33 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
   };
 
   const extractQuantityFromDosage = (dosage: string): number => {
-    if (!dosage) return 1;
-    
-    const lowerDosage = dosage.toLowerCase();
-    
-    // Look for quantity patterns that indicate number of units to dispense
-    const quantityPatterns = [
-      // Direct quantity indicators
-      /(\d+)\s*(?:tablet|tablets|tabletes?|kapsul|capsul|pill|pills)/i,
-      /(\d+)\s*(?:tab|caps?|pcs?|pieces?|gab)/i,
-      /take\s+(\d+)/i,
-      /(\d+)\s*(?:times?\s+(?:per\s+)?day|daily|reizes?\s+dien)/i,
-      /(\d+)\s*(?:x\s*daily|x\s*per\s*day)/i,
-      // Number before common dosage words
-      /(\d+)\s*(?:morning|evening|night|noon)/i,
-      // Simple number at start
-      /^(\d+)\s/,
-    ];
-    
-    // Try each pattern to find quantity
-    for (const pattern of quantityPatterns) {
-      const match = dosage.match(pattern);
-      if (match) {
-        const quantity = parseInt(match[1], 10);
-        console.log(`📊 Extracted quantity ${quantity} from "${dosage}" using pattern: ${pattern}`);
-        return quantity;
-      }
-    }
-    
-    // If no specific quantity pattern found, look for the first reasonable number
-    // but avoid dosage amounts (mg, g, ml, etc.)
-    const generalMatch = dosage.match(/(\d+)(?!\s*(?:mg|g|ml|mcg|μg|units?|iu|%|mm|cm))/i);
-    if (generalMatch) {
-      const quantity = parseInt(generalMatch[1], 10);
-      // Reasonable quantity range check (avoid extracting years, large dosage amounts, etc.)
-      if (quantity >= 1 && quantity <= 20) {
-        console.log(`📊 Extracted general quantity ${quantity} from "${dosage}"`);
-        return quantity;
-      }
-    }
-    
-    console.log(`📊 No quantity found in "${dosage}", defaulting to 1`);
-    // Default to 1 if no reasonable number found
+    // Always default to 1 whole pack instead of parsing individual units
+    // This provides a safer default and lets the medic adjust as needed
+    console.log(`📦 Defaulting to 1 whole pack for dosage: "${dosage}"`);
     return 1;
+  };
+
+  const getDrugQuantityInfo = (diagnosisId: string, drugIndex: number) => {
+    const drugKey = `${diagnosisId}-${drugIndex}`;
+    const customQuantity = drugQuantities[drugKey];
+    // Migrate old 'units' to 'tablets' for backwards compatibility
+    if (customQuantity && (customQuantity.unit as any) === 'units') {
+      return { quantity: customQuantity.quantity, unit: 'tablets' as const };
+    }
+    return customQuantity || { quantity: 1, unit: 'packs' as const };
+  };
+
+  const setDrugQuantityInfo = (diagnosisId: string, drugIndex: number, quantity: number, unit: 'packs' | 'tablets') => {
+    const drugKey = `${diagnosisId}-${drugIndex}`;
+    setDrugQuantities(prev => ({
+      ...prev,
+      [drugKey]: { quantity, unit }
+    }));
+  };
+
+  const getDisplayQuantity = (diagnosisId: string, drugIndex: number) => {
+    const { quantity, unit } = getDrugQuantityInfo(diagnosisId, drugIndex);
+    return { quantity, unit };
   };
 
   const handleDeleteDiagnosis = async (diagnosisId: string) => {
@@ -862,15 +855,52 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
                                 const drugKey = `${diagnosis.id}-${i}`;
                                 const isDispensing = dispensingIndividualDrug[drugKey];
                                 const isDispensed = individualDrugDispensed[drugKey];
+                                const isEditingQuantity = editingDrugQuantity[drugKey];
+                                const { quantity: displayQuantity, unit: displayUnit } = getDisplayQuantity(diagnosis.id, i);
                                 
                                 return (
                                   <div key={`inventory-${i}`} className="bg-white border border-emerald-200 rounded-xl p-4 shadow-sm">
                                     <div className="flex items-start justify-between mb-3">
                                       <h5 className="font-medium text-slate-900">{drug.drug_name}</h5>
                                       <div className="flex items-center gap-2">
-                                        <span className="px-3 py-1 text-xs bg-emerald-600 text-white rounded-full font-medium">
-                                          {drug.dispense_quantity || 1}
-                                        </span>
+                                        {isEditingQuantity ? (
+                                          <div className="flex items-center gap-1 bg-slate-50 rounded-lg px-2 py-1">
+                                            <input
+                                              type="number"
+                                              min="1"
+                                              value={displayQuantity}
+                                              onChange={(e) => setDrugQuantityInfo(diagnosis.id, i, parseInt(e.target.value) || 1, displayUnit)}
+                                              className="w-12 text-xs bg-transparent border-none outline-none text-center"
+                                            />
+                                            <select
+                                              value={displayUnit}
+                                              onChange={(e) => setDrugQuantityInfo(diagnosis.id, i, displayQuantity, e.target.value as 'packs' | 'tablets')}
+                                              className="text-xs bg-transparent border-none outline-none"
+                                            >
+                                              <option value="packs">pack{displayQuantity !== 1 ? 's' : ''}</option>
+                                              <option value="tablets">tablet{displayQuantity !== 1 ? 's' : ''}</option>
+                                            </select>
+                                            <button
+                                              onClick={() => setEditingDrugQuantity(prev => ({ ...prev, [drugKey]: false }))}
+                                              className="text-emerald-600 hover:text-emerald-700 ml-1"
+                                            >
+                                              ✓
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center gap-1">
+                                            <span className="px-3 py-1 text-xs bg-emerald-600 text-white rounded-full font-medium">
+                                              {displayQuantity} {displayUnit === 'packs' ? `pack${displayQuantity !== 1 ? 's' : ''}` : `tablet${displayQuantity !== 1 ? 's' : ''}`}
+                                            </span>
+                                            <button
+                                              onClick={() => setEditingDrugQuantity(prev => ({ ...prev, [drugKey]: true }))}
+                                              className="text-slate-400 hover:text-slate-600 px-1"
+                                              title="Edit quantity"
+                                            >
+                                              ✏️
+                                            </button>
+                                          </div>
+                                        )}
                                         <span className="px-2 py-1 text-xs bg-emerald-100 text-emerald-700 rounded-full">
                                           Stock
                                         </span>
@@ -920,7 +950,7 @@ export default function PatientDetails({ params }: PatientDetailsProps) {
                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3a2 2 0 012-2h4a2 2 0 012 2v4m-6 0V6a2 2 0 112 0v1m-6 0h12m-6 0v7m0-7V6a2 2 0 012-2 2 2 0 012 2v1" />
                                             </svg>
-                                            Dispense {drug.dispense_quantity || 1} units
+                                            Dispense {displayQuantity} {displayUnit === 'packs' ? `pack${displayQuantity !== 1 ? 's' : ''}` : `unit${displayQuantity !== 1 ? 's' : ''}`}
                                           </>
                                         )}
                                       </button>

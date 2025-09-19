@@ -715,7 +715,7 @@ export class DrugDispensingService {
           }
 
           console.log('✅ Successfully reduced inventory by', totalReduction, 'units for drug_id:', drugId);
-            
+          {
             // Get drug name and collect patient info for this drug
             const recordsForThisDrug = allRecords.filter(r => r.drug_id === drugId);
             const drugName = recordsForThisDrug[0]?.user_drug_inventory?.drug_name || 
@@ -778,9 +778,9 @@ export class DrugDispensingService {
 
   // Delete a specific dispensing record
   static async deleteDispensingRecord(recordId: string): Promise<{ success: boolean; error: string | null }> {
-    console.log('🗑️ Starting deleteDispensingRecord for ID:', recordId);
+    console.log('Starting deleteDispensingRecord for ID:', recordId);
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
+
     if (authError || !user) {
       console.error('❌ User not authenticated:', authError);
       return { success: false, error: 'User not authenticated' };
@@ -822,27 +822,26 @@ export class DrugDispensingService {
         }
 
         console.log('✅ Successfully reduced inventory by', existingRecord.quantity_dispensed, 'units');
-          
-          // Record this inventory usage for the usage report
-          const drugName = existingRecord.user_drug_inventory?.drug_name || 
-                          existingRecord.patient_info?.drug_name || 
-                          existingRecord.drug_name || 
-                          'Unknown Drug';
-          
-          // Extract patient information from the existing record
-          const patientName = existingRecord.patient_info?.patient_name || 'Unknown';
-          const diagnosis = existingRecord.patient_info?.primary_diagnosis || 'Unknown';
-          
-          await InventoryUsageService.recordInventoryUsage(
-            existingRecord.drug_id,
-            drugName,
-            existingRecord.quantity_dispensed,
-            'dispensing_record_deleted',
-            existingRecord.id,
-            patientName,
-            `Patient: ${patientName} | Diagnosis: ${diagnosis} | Quantity: ${existingRecord.quantity_dispensed} units | Deleted on ${new Date().toLocaleDateString()}`
-          );
-        }
+
+        // Record this inventory usage for the usage report
+        const drugName = existingRecord.user_drug_inventory?.drug_name ||
+                        existingRecord.patient_info?.drug_name ||
+                        existingRecord.drug_name ||
+                        'Unknown Drug';
+
+        // Extract patient information from the existing record
+        const patientName = existingRecord.patient_info?.patient_name || 'Unknown';
+        const diagnosis = existingRecord.patient_info?.primary_diagnosis || 'Unknown';
+
+        await InventoryUsageService.recordInventoryUsage(
+          existingRecord.drug_id,
+          drugName,
+          existingRecord.quantity_dispensed,
+          'dispensing_record_deleted',
+          existingRecord.id,
+          patientName,
+          `Patient: ${patientName} | Diagnosis: ${diagnosis} | Quantity: ${existingRecord.quantity_dispensed} units | Deleted on ${new Date().toLocaleDateString()}`
+        );
       }
 
       const { data, error } = await supabase
@@ -863,9 +862,9 @@ export class DrugDispensingService {
       return { success: true, error: null };
     } catch (error) {
       console.error('❌ Exception in deleteDispensingRecord:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Failed to delete dispensing record' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to delete dispensing record'
       };
     }
   }

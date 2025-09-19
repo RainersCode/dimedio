@@ -7,6 +7,7 @@ import { ModeAwarePatientService } from '@/lib/modeAwarePatientService';
 import { PatientService } from '@/lib/patientService';
 import { DatabaseService } from '@/lib/database';
 import { DrugInventoryService } from '@/lib/drugInventory';
+import { ModeAwareDrugInventoryService } from '@/lib/modeAwareDrugInventoryService';
 import { UserDrugInventory, PatientProfile } from '@/types/database';
 import { useState, useEffect, useRef } from 'react';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
@@ -130,17 +131,20 @@ export default function DrugDispensing() {
 
   const fetchInventoryData = async () => {
     try {
-      const { data: inventory, error } = await DrugInventoryService.getUserDrugInventory();
+      // Use mode-aware service to get correct inventory
+      const { data: inventory, error } = await ModeAwareDrugInventoryService.getDrugInventory(activeMode, organizationId);
       if (error) {
         console.warn('Could not fetch inventory data:', error);
         return;
       }
 
-      // Create a mapping of drug_id to stock_quantity
+      // Create a mapping of drug_id to stock_quantity (using whole_packs_count as primary stock indicator)
       const inventoryMap: {[drugId: string]: number} = {};
       if (inventory) {
         inventory.forEach(item => {
-          inventoryMap[item.id] = item.stock_quantity || 0;
+          // Prefer whole_packs_count if available, otherwise fall back to stock_quantity
+          const stock = item.whole_packs_count !== null ? item.whole_packs_count : (item.stock_quantity || 0);
+          inventoryMap[item.id] = stock;
         });
       }
       setInventoryData(inventoryMap);
@@ -350,7 +354,7 @@ export default function DrugDispensing() {
     }
 
     try {
-      const { data: inventory } = await DrugInventoryService.getUserDrugInventory();
+      const { data: inventory } = await ModeAwareDrugInventoryService.getDrugInventory(activeMode, organizationId);
       if (inventory) {
         const filtered = inventory.filter(drug =>
           drug.drug_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -377,7 +381,7 @@ export default function DrugDispensing() {
         return;
       }
 
-      const { data: inventory } = await DrugInventoryService.getUserDrugInventory();
+      const { data: inventory } = await ModeAwareDrugInventoryService.getDrugInventory(activeMode, organizationId);
       if (inventory) {
         // Sort by drug name and cache for future use
         const sortedDrugs = inventory.sort((a, b) =>
@@ -823,8 +827,8 @@ export default function DrugDispensing() {
                           <div className="text-sm text-slate-600">
                             {drug.strength && `${drug.strength} • `}
                             {drug.dosage_form && `${drug.dosage_form} • `}
-                            <span className={`font-medium ${drug.stock_quantity > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                              Stock: {drug.stock_quantity}
+                            <span className={`font-medium ${(drug.whole_packs_count !== null ? drug.whole_packs_count : drug.stock_quantity) > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                              Stock: {drug.whole_packs_count !== null ? drug.whole_packs_count : drug.stock_quantity} pack{(drug.whole_packs_count !== null ? drug.whole_packs_count : drug.stock_quantity) !== 1 ? 's' : ''}
                             </span>
                           </div>
                           <div className="text-xs text-slate-500 mt-1">
@@ -955,13 +959,14 @@ export default function DrugDispensing() {
 
                 {/* Quantity */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Quantity *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Quantity (packs) *</label>
                   <input
                     type="number"
                     min="1"
                     value={quantity}
                     onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder="Number of packs to dispense"
                   />
                 </div>
 
@@ -1021,7 +1026,7 @@ export default function DrugDispensing() {
                 <div className="ml-4">
                   <p className="text-sm font-medium text-slate-600">Total Dispensed</p>
                   <p className="text-2xl font-bold text-slate-900">{stats.total_dispensed}</p>
-                  <p className="text-xs text-slate-500">units in {selectedPeriod}</p>
+                  <p className="text-xs text-slate-500">packs in {selectedPeriod}</p>
                 </div>
               </div>
             </div>
@@ -1341,7 +1346,7 @@ export default function DrugDispensing() {
                         <p className="text-sm text-slate-600">{drug.total_dispensings} dispensing{drug.total_dispensings !== 1 ? 's' : ''}</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-semibold text-slate-900">{drug.total_quantity} units</p>
+                        <p className="font-semibold text-slate-900">{drug.total_quantity} pack{drug.total_quantity !== 1 ? 's' : ''}</p>
                       </div>
                     </div>
                   ))}
@@ -1383,7 +1388,7 @@ export default function DrugDispensing() {
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="font-semibold text-slate-900">{activity.quantity_dispensed} units</p>
+                        <p className="font-semibold text-slate-900">{activity.quantity_dispensed} pack{activity.quantity_dispensed !== 1 ? 's' : ''}</p>
                       </div>
                     </div>
                   ))}
@@ -1402,7 +1407,7 @@ export default function DrugDispensing() {
                 const confirmed = window.confirm(
                   '⚠️ Are you sure you want to delete ALL dispensing history records?\n\n' +
                   '⚠️ IMPORTANT: This will also REDUCE your current inventory by the total amounts of all dispensed drugs in this history.\n\n' +
-                  'For example, if you dispensed 5 units of Drug A across multiple records, your inventory will be reduced by 5 units.\n\n' +
+                  'For example, if you dispensed 5 packs of Drug A across multiple records, your inventory will be reduced by 5 packs.\n\n' +
                   'This action cannot be undone and will permanently remove all your dispensing records from the database.'
                 );
                 
@@ -1563,7 +1568,7 @@ export default function DrugDispensing() {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-900">
-                        <span className="font-medium">{record.quantity_dispensed}</span> units
+                        <span className="font-medium">{record.quantity_dispensed}</span> pack{record.quantity_dispensed !== 1 ? 's' : ''}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">
                         {record.drug_id && inventoryData[record.drug_id] !== undefined ? (
@@ -1571,7 +1576,7 @@ export default function DrugDispensing() {
                             <span className={`font-medium ${inventoryData[record.drug_id] === 0 ? 'text-red-600' : inventoryData[record.drug_id] < 10 ? 'text-orange-600' : 'text-green-600'}`}>
                               {inventoryData[record.drug_id]}
                             </span>
-                            <span className="text-slate-400 text-xs">units</span>
+                            <span className="text-slate-400 text-xs">pack{inventoryData[record.drug_id] !== 1 ? 's' : ''}</span>
                           </div>
                         ) : (
                           <span className="text-slate-400 italic text-xs">Not in inventory</span>
@@ -1586,10 +1591,10 @@ export default function DrugDispensing() {
                             const confirmed = window.confirm(
                               `⚠️ Are you sure you want to delete this dispensing record?\n\n` +
                               `Drug: ${record.drug_name || 'Unknown Drug'}\n` +
-                              `Quantity: ${record.quantity_dispensed || 1} units\n` +
+                              `Quantity: ${record.quantity_dispensed || 1} pack${(record.quantity_dispensed || 1) !== 1 ? 's' : ''}\n` +
                               `Patient: ${record.patient_name || 'Unknown Patient'}\n` +
                               `Date: ${new Date(record.dispensed_date).toLocaleDateString()}\n\n` +
-                              `⚠️ IMPORTANT: Deleting this record will also REDUCE your current inventory by ${record.quantity_dispensed || 1} units of ${record.drug_name || 'this drug'}.\n\n` +
+                              `⚠️ IMPORTANT: Deleting this record will also REDUCE your current inventory by ${record.quantity_dispensed || 1} pack${(record.quantity_dispensed || 1) !== 1 ? 's' : ''} of ${record.drug_name || 'this drug'}.\n\n` +
                               `This action cannot be undone.`
                             );
 

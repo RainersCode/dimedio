@@ -93,6 +93,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   
   // Drug dispensing quantities state
   const [drugQuantities, setDrugQuantities] = useState<{[key: string]: number}>({});
+  const [drugDispenseUnits, setDrugDispenseUnits] = useState<{[key: string]: 'packs' | 'tablets'}>({});
   
   // Refs for dropdown containers to handle click outside
   const dropdownRefs = useRef<{[key: string]: HTMLDivElement | null}>({});
@@ -131,22 +132,39 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
   // Handle patient selection
   const handlePatientSelect = (patient: typeof selectedPatient) => {
+    console.log('🧑 Patient selected:', {
+      patient_name: patient?.patient_name,
+      patient_gender: patient?.patient_gender,
+      hasGender: !!patient?.patient_gender,
+      genderType: typeof patient?.patient_gender
+    });
+
     setSelectedPatient(patient);
 
     if (patient) {
       // Update form data with patient information
-      setFormData(prev => ({
-        ...prev,
-        patient_name: patient.patient_name,
-        patient_surname: patient.patient_surname,
-        patient_id: patient.patient_id,
-        patient_gender: patient.patient_gender || '',
-        date_of_birth: patient.date_of_birth || '',
-        patient_age: calculateAge(patient.date_of_birth || '') || undefined,
-        // You can also populate other fields if needed
-        allergies: patient.allergies || prev.allergies,
-        chronic_conditions: patient.chronic_conditions || prev.chronic_conditions,
-      }));
+      setFormData(prev => {
+        const updatedFormData = {
+          ...prev,
+          patient_name: patient.patient_name,
+          patient_surname: patient.patient_surname,
+          patient_id: patient.patient_id,
+          patient_gender: patient.patient_gender || '',
+          date_of_birth: patient.date_of_birth || '',
+          patient_age: calculateAge(patient.date_of_birth || '') || undefined,
+          // You can also populate other fields if needed
+          allergies: patient.allergies || prev.allergies,
+          chronic_conditions: patient.chronic_conditions || prev.chronic_conditions,
+        };
+
+        console.log('📝 Updating form data with patient info:', {
+          patient_gender: updatedFormData.patient_gender,
+          patient_name: updatedFormData.patient_name,
+          patient_age: updatedFormData.patient_age
+        });
+
+        return updatedFormData;
+      });
     } else {
       // Clear patient data for anonymous diagnosis
       setFormData(prev => ({
@@ -240,7 +258,8 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       if (diagnosisToSave.inventory_drugs) {
         diagnosisToSave.inventory_drugs = diagnosisToSave.inventory_drugs.map((drug: any, index: number) => ({
           ...drug,
-          dispense_quantity: drugQuantities[`inventory_${index}`] || 1
+          dispense_quantity: drugQuantities[`inventory_${index}`] || 1,
+          dispense_unit: getDispenseUnit(`inventory_${index}`)
         }));
       }
       
@@ -255,17 +274,38 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       if (updateError) {
         setError('Failed to save changes: ' + updateError);
       } else if (updatedDiagnosis) {
+        // If patient gender was updated in diagnosis, update the patient record too
+        if (diagnosisToSave.patient_gender && diagnosisToSave.patient_id) {
+          try {
+            // Update patient record with gender information using existing savePatientFromDiagnosis
+            console.log('🔄 Updating patient record with gender:', diagnosisToSave.patient_gender);
+            await ModeAwarePatientService.savePatientFromDiagnosis(
+              updatedDiagnosis,
+              activeMode,
+              organizationId
+            );
+          } catch (patientUpdateError) {
+            console.warn('Could not update patient gender:', patientUpdateError);
+            // Don't fail the diagnosis save if patient update fails
+          }
+        }
         setDiagnosisResult(updatedDiagnosis);
         setIsEditing(false);
         setEditedDiagnosis(null);
         
-        // Update drugQuantities state with the saved quantities to ensure consistency
+        // Update drugQuantities and dispenseUnits state with the saved values to ensure consistency
         if (updatedDiagnosis.inventory_drugs) {
           const updatedQuantities: {[key: string]: number} = {};
+          const updatedUnits: {[key: string]: 'packs' | 'tablets'} = {};
           updatedDiagnosis.inventory_drugs.forEach((drug: any, index: number) => {
-            updatedQuantities[`inventory_${index}`] = drug.dispense_quantity || 1;
+            // Only use saved quantity if it has a saved unit (indicating user manually set it)
+            // Otherwise default to 1 pack to override AI calculations
+            const hasManualSetting = drug.dispense_unit !== undefined;
+            updatedQuantities[`inventory_${index}`] = hasManualSetting ? (drug.dispense_quantity || 1) : 1;
+            updatedUnits[`inventory_${index}`] = drug.dispense_unit || 'packs';
           });
           setDrugQuantities(updatedQuantities);
+          setDrugDispenseUnits(updatedUnits);
         }
       }
     } catch (err) {
@@ -450,10 +490,11 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
             diagnosisDrug: { name: drug.drug_name, id: drug.id || drug.drug_id }
           });
           
-          // Get quantity from saved drug data, drugQuantities state, or fallback to 1 unit
+          // Get quantity and unit from saved drug data, state, or fallback to defaults
           const drugKey = `inventory_${index}`;
           const quantity = drug.dispense_quantity || drugQuantities[drugKey] || 1;
-          console.log('📊 Using quantity:', quantity, 'from saved/state (default: 1 unit) for dosage:', drug.dosage);
+          const unit = drug.dispense_unit || getDispenseUnit(drugKey);
+          console.log('📊 Using quantity:', quantity, 'unit:', unit, 'from saved/state (defaults: 1 pack) for dosage:', drug.dosage);
           console.log('📊 Debug quantities - saved:', drug.dispense_quantity, 'state:', drugQuantities[drugKey], 'final:', quantity);
           
           dispensings.push({
@@ -468,7 +509,8 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           // Still record the drug even if not found in inventory
           const drugKey = `inventory_${index}`;
           const quantity = drug.dispense_quantity || drugQuantities[drugKey] || 1;
-          console.log('📊 Debug quantities (no inventory match) - saved:', drug.dispense_quantity, 'state:', drugQuantities[drugKey], 'final:', quantity);
+          const unit = drug.dispense_unit || getDispenseUnit(drugKey);
+          console.log('📊 Debug quantities (no inventory match) - saved:', drug.dispense_quantity, 'state:', drugQuantities[drugKey], 'final:', quantity, 'unit:', unit);
           dispensings.push({
             drugId: null, // No inventory drug ID
             drugName: drug.drug_name, // Store the drug name from diagnosis
@@ -531,10 +573,12 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         ...currentDiagnosisState,
         inventory_drugs: currentDiagnosisState.inventory_drugs?.map((drug: any, index: number) => {
           const currentQuantity = drugQuantities[`inventory_${index}`] || 1;
-          console.log(`🔍 Drug ${index} (${drug.drug_name}): using quantity ${currentQuantity} from state`);
+          const currentUnit = getDispenseUnit(`inventory_${index}`);
+          console.log(`🔍 Drug ${index} (${drug.drug_name}): using quantity ${currentQuantity} ${currentUnit} from state`);
           return {
             ...drug,
-            dispense_quantity: currentQuantity
+            dispense_quantity: currentQuantity,
+            dispense_unit: currentUnit
           };
         })
       };
@@ -563,6 +607,21 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       ...prev,
       [drugKey]: Math.max(1, Math.min(99, quantity)) // Ensure quantity is between 1 and 99
     }));
+  };
+
+  const toggleDispenseUnit = (drugKey: string) => {
+    setDrugDispenseUnits(prev => ({
+      ...prev,
+      [drugKey]: prev[drugKey] === 'packs' ? 'tablets' : 'packs'
+    }));
+  };
+
+  const getDispenseUnit = (drugKey: string) => {
+    return drugDispenseUnits[drugKey] || 'packs'; // Default to packs
+  };
+
+  const getDispenseUnitLabel = (drugKey: string) => {
+    return getDispenseUnit(drugKey) === 'packs' ? 'packs' : 'tablets';
   };
 
   const updateEditedField = (field: string, value: any) => {
@@ -746,15 +805,21 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
     }
   }, [activeMode, organizationId]);
 
-  // Initialize drug quantities when diagnosis result is set
+  // Initialize drug quantities and dispense units when diagnosis result is set
   useEffect(() => {
     if (diagnosisResult && diagnosisResult.inventory_drugs) {
       const initialQuantities: {[key: string]: number} = {};
+      const initialUnits: {[key: string]: 'packs' | 'tablets'} = {};
       diagnosisResult.inventory_drugs.forEach((drug: any, index: number) => {
-        // Use saved quantity or default to 1 unit
-        initialQuantities[`inventory_${index}`] = drug.dispense_quantity || 1;
+        // Only use saved quantity if it has a saved unit (indicating user manually set it)
+        // Otherwise default to 1 pack to override AI calculations
+        const hasManualSetting = drug.dispense_unit !== undefined;
+        initialQuantities[`inventory_${index}`] = hasManualSetting ? (drug.dispense_quantity || 1) : 1;
+        // Use saved unit or default to packs
+        initialUnits[`inventory_${index}`] = drug.dispense_unit || 'packs';
       });
       setDrugQuantities(initialQuantities);
+      setDrugDispenseUnits(initialUnits);
     }
   }, [diagnosisResult]);
 
@@ -847,6 +912,13 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         setCreditInfo(updatedCredits);
       }
 
+      console.log('🧪 Form data before cleaning:', {
+        patient_gender: formData.patient_gender,
+        patient_name: formData.patient_name,
+        patient_age: formData.patient_age,
+        patient_id: formData.patient_id
+      });
+
       // Clean form data - convert empty strings to null for date fields and numeric fields
       const cleanedFormData = {
         ...formData,
@@ -865,6 +937,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         patient_name: formData.patient_name?.trim() || null,
         patient_surname: formData.patient_surname?.trim() || null,
         patient_id: formData.patient_id?.trim() || null,
+        patient_gender: formData.patient_gender?.trim() || '',
         allergies: formData.allergies?.trim() || null,
         current_medications: formData.current_medications?.trim() || null,
         chronic_conditions: formData.chronic_conditions?.trim() || null,
@@ -920,12 +993,34 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
       const payloadWithInventory = {
         ...cleanedFormData,
+        // Map field names for N8N compatibility
+        age: cleanedFormData.patient_age,
+        gender: cleanedFormData.patient_gender,
+        complaint: cleanedFormData.complaint,
         user_drug_inventory: currentInventoryForAI,
         has_drug_inventory: currentInventoryForAI && currentInventoryForAI.length > 0,
         current_mode: currentMode
       };
+
+      console.log('📤 Sending to N8N:', {
+        age: payloadWithInventory.age,
+        gender: payloadWithInventory.gender,
+        patient_gender: payloadWithInventory.patient_gender,
+        patient_name: payloadWithInventory.patient_name,
+        patient_surname: payloadWithInventory.patient_surname,
+        patient_id: payloadWithInventory.patient_id,
+        complaint: payloadWithInventory.complaint
+      });
+
       const { data: n8nResponse, error: n8nError } = await N8nService.sendDiagnosisRequest(payloadWithInventory);
-      
+
+      console.log('📥 Received from N8N:', {
+        patient_gender: n8nResponse?.patient_gender,
+        patient_age: n8nResponse?.patient_age,
+        patient_name: n8nResponse?.patient_name,
+        hasInventoryDrugs: !!n8nResponse?.inventory_drugs
+      });
+
       if (n8nError) {
         // If n8n fails, we still have the diagnosis saved, just without AI results
         console.error('n8n error:', n8nError);
@@ -957,9 +1052,42 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
 
       // 3. Update diagnosis with AI results
       if (n8nResponse) {
+        console.log('🔍 Original diagnosis before N8N update:', {
+          patient_name: diagnosis.patient_name,
+          patient_surname: diagnosis.patient_surname,
+          patient_gender: diagnosis.patient_gender,
+          patient_age: diagnosis.patient_age,
+          patient_id: diagnosis.patient_id
+        });
+
+        // Create a clean copy of N8N response without patient fields that might override our data
+        const { patient_name: n8nPatientName, patient_surname: n8nPatientSurname, patient_id: n8nPatientId,
+                patient_gender: n8nPatientGender, patient_age: n8nPatientAge, date_of_birth: n8nDateOfBirth,
+                ...cleanN8nResponse } = n8nResponse;
+
+        // Preserve original patient information and only use N8N patient data if it's valid
+        const n8nResponseWithPatientInfo = {
+          ...cleanN8nResponse,
+          // Always use original patient information to prevent AI from corrupting it
+          patient_name: diagnosis.patient_name,
+          patient_surname: diagnosis.patient_surname,
+          patient_id: diagnosis.patient_id,
+          patient_gender: diagnosis.patient_gender,
+          patient_age: diagnosis.patient_age,
+          date_of_birth: diagnosis.date_of_birth,
+        };
+
+        console.log('🔧 Merged N8N response with patient info:', {
+          patient_name: n8nResponseWithPatientInfo.patient_name,
+          patient_surname: n8nResponseWithPatientInfo.patient_surname,
+          patient_gender: n8nResponseWithPatientInfo.patient_gender,
+          patient_age: n8nResponseWithPatientInfo.patient_age,
+          patient_id: n8nResponseWithPatientInfo.patient_id
+        });
+
         const { data: updatedDiagnosis, error: updateError } = await ModeAwareDiagnosisService.updateDiagnosis(
           diagnosis.id,
-          n8nResponse,
+          n8nResponseWithPatientInfo,
           activeMode,
           organizationId
         );
@@ -970,6 +1098,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         } else {
           console.log('Setting diagnosis result:', updatedDiagnosis);
           console.log('Drug suggestions in result:', updatedDiagnosis?.drug_suggestions);
+          console.log('Patient gender in diagnosis result:', updatedDiagnosis?.patient_gender);
           setDiagnosisResult(updatedDiagnosis);
           
           // Automatic drug dispensing disabled - drugs will be dispensed manually from patient cards
@@ -1410,7 +1539,7 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                         <div>ID: {diagnosisResult.patient_id}</div>
                       )}
                       {diagnosisResult.date_of_birth && (
-                        <div>DOB: {diagnosisResult.date_of_birth}</div>
+                        <div>DOB: {diagnosisResult.date_of_birth}{diagnosisResult.patient_age ? `(${diagnosisResult.patient_age} years old)` : ''}</div>
                       )}
                     </div>
                   </div>
@@ -2039,7 +2168,14 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                               onChange={(e) => updateDrugQuantity(`inventory_${index}`, parseInt(e.target.value) || 1)}
                               className="w-20 px-2 py-1 border border-green-300 rounded text-green-800 text-center"
                             />
-                            <span className="text-green-800 font-medium">units</span>
+                            <button
+                              type="button"
+                              onClick={() => toggleDispenseUnit(`inventory_${index}`)}
+                              className="text-green-800 font-medium hover:bg-green-100 px-2 py-1 rounded transition-colors border border-green-300"
+                              title={`Click to switch to ${getDispenseUnit(`inventory_${index}`) === 'packs' ? 'tablets' : 'packs'}`}
+                            >
+                              {getDispenseUnitLabel(`inventory_${index}`)}
+                            </button>
                           </div>
                         </div>
                         <div className="flex items-center">
@@ -2117,14 +2253,21 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                                   onChange={(e) => updateDrugQuantity(`inventory_${index}`, parseInt(e.target.value) || 1)}
                                   className="w-16 px-2 py-1 border border-green-300 rounded text-green-800 font-medium text-center"
                                 />
-                                <span className="text-green-800 font-medium">units</span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleDispenseUnit(`inventory_${index}`)}
+                                  className="text-green-800 font-medium hover:bg-green-100 px-2 py-1 rounded transition-colors border border-green-300"
+                                  title={`Click to switch to ${getDispenseUnit(`inventory_${index}`) === 'packs' ? 'tablets' : 'packs'}`}
+                                >
+                                  {getDispenseUnitLabel(`inventory_${index}`)}
+                                </button>
                               </div>
                             ) : (
                               <div className="flex items-center gap-2">
                                 <span className="px-2 py-1 bg-green-50 border border-green-300 rounded text-green-800 font-medium">
-                                  {drug.dispense_quantity || drugQuantities[`inventory_${index}`] || 1} units
+                                  {drugQuantities[`inventory_${index}`] || 1} {getDispenseUnitLabel(`inventory_${index}`)}
                                 </span>
-                                {(drug.dispense_quantity || drugQuantities[`inventory_${index}`] || 1) === 1 && (
+                                {(drugQuantities[`inventory_${index}`] || 1) === 1 && (
                                   <span className="text-xs text-green-600">(default quantity)</span>
                                 )}
                               </div>

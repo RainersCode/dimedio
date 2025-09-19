@@ -119,12 +119,19 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
   };
 
   const selectPatient = (patient: PatientProfile | OrganizationPatient) => {
+    console.log('👤 PatientSelector - Raw patient from DB:', {
+      patient_name: patient.patient_name,
+      patient_gender: patient.patient_gender,
+      hasGenderField: 'patient_gender' in patient,
+      patientKeys: Object.keys(patient)
+    });
+
     const patientData: PatientData = {
       id: patient.id,
       patient_name: patient.patient_name || '',
       patient_surname: patient.patient_surname || '',
       patient_id: patient.patient_id || '',
-      patient_gender: (patient as any).patient_gender || undefined,
+      patient_gender: patient.patient_gender || undefined,
       date_of_birth: patient.date_of_birth || undefined,
       phone: patient.phone || undefined,
       email: patient.email || undefined,
@@ -136,6 +143,12 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
       chronic_conditions: patient.chronic_conditions || undefined,
       insurance_info: patient.insurance_info || undefined
     };
+
+    console.log('📤 PatientSelector - Sending patient data:', {
+      patient_name: patientData.patient_name,
+      patient_gender: patientData.patient_gender,
+      hasGender: !!patientData.patient_gender
+    });
 
     onPatientSelect(patientData);
     setSearchQuery(`${patient.patient_name} ${patient.patient_surname} (ID: ${patient.patient_id})`);
@@ -206,6 +219,7 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
         <h3 className="text-lg font-medium text-slate-900">Patient Information</h3>
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={() => setMode('search')}
             className={`px-3 py-1 text-sm rounded-lg transition-colors ${
               mode === 'search'
@@ -216,6 +230,7 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
             Search Patient
           </button>
           <button
+            type="button"
             onClick={() => setMode('new')}
             className={`px-3 py-1 text-sm rounded-lg transition-colors ${
               mode === 'new'
@@ -226,6 +241,7 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
             Add New
           </button>
           <button
+            type="button"
             onClick={() => setMode('anonymous')}
             className={`px-3 py-1 text-sm rounded-lg transition-colors ${
               mode === 'anonymous'
@@ -259,6 +275,7 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
               )}
             </div>
             <button
+              type="button"
               onClick={clearSelection}
               className="text-emerald-600 hover:text-emerald-800 p-1"
               title="Clear selection"
@@ -316,6 +333,7 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
               )}
               {searchResults.map((patient: any) => (
                 <button
+                  type="button"
                   key={patient.id}
                   onClick={() => selectPatient(patient)}
                   className="w-full px-4 py-3 text-left hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
@@ -453,6 +471,7 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
 
           <div className="flex gap-3 mt-6">
             <button
+              type="button"
               onClick={createNewPatient}
               disabled={isCreating || !newPatientData.patient_name || !newPatientData.patient_surname || !newPatientData.patient_id}
               className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
@@ -463,6 +482,7 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
               Add Patient
             </button>
             <button
+              type="button"
               onClick={() => setMode('search')}
               className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
             >
@@ -485,6 +505,7 @@ export default function PatientSelector({ selectedPatient, onPatientSelect, onEr
             Continue without patient identification. Patient data will not be saved to records.
           </p>
           <button
+            type="button"
             onClick={continueAnonymous}
             className="px-6 py-2 bg-amber-600 text-white font-semibold rounded-lg hover:bg-amber-700 transition-colors"
           >

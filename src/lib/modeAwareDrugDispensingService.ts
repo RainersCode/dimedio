@@ -132,12 +132,12 @@ export class ModeAwareDrugDispensingService {
           is_write_off: false
         });
 
-        // Update organization drug inventory stock
+        // Update organization drug inventory stock (both stock_quantity and pack tracking)
         try {
-          // First get current stock quantity
+          // First get current inventory data including pack tracking fields
           const { data: currentInventory, error: fetchError } = await supabase
             .from('organization_drug_inventory')
-            .select('stock_quantity')
+            .select('stock_quantity, whole_packs_count, loose_units_count, units_per_pack')
             .eq('id', record.drugId)
             .eq('organization_id', organizationId)
             .single();
@@ -145,20 +145,34 @@ export class ModeAwareDrugDispensingService {
           if (fetchError) {
             console.error('Error fetching current organization inventory:', fetchError);
           } else if (currentInventory) {
-            const newQuantity = Math.max(0, currentInventory.stock_quantity - record.quantity);
+            // Update stock_quantity
+            const newStockQuantity = Math.max(0, currentInventory.stock_quantity - record.quantity);
+
+            // Prepare update object
+            const updateData: any = {
+              stock_quantity: newStockQuantity
+            };
+
+            // If pack tracking is enabled, also update whole_packs_count
+            if (currentInventory.whole_packs_count !== null && currentInventory.whole_packs_count !== undefined) {
+              const newWholePacks = Math.max(0, currentInventory.whole_packs_count - record.quantity);
+              updateData.whole_packs_count = newWholePacks;
+              console.log(`Updating pack count: ${currentInventory.whole_packs_count} - ${record.quantity} = ${newWholePacks}`);
+            }
 
             const { error: updateError } = await supabase
               .from('organization_drug_inventory')
-              .update({
-                stock_quantity: newQuantity
-              })
+              .update(updateData)
               .eq('id', record.drugId)
               .eq('organization_id', organizationId);
 
             if (updateError) {
               console.error('Error updating organization drug inventory:', updateError);
             } else {
-              console.log(`Updated organization inventory: ${currentInventory.stock_quantity} - ${record.quantity} = ${newQuantity}`);
+              console.log(`Updated organization inventory: stock ${currentInventory.stock_quantity} -> ${newStockQuantity}`);
+              if (updateData.whole_packs_count !== undefined) {
+                console.log(`Updated pack count: ${currentInventory.whole_packs_count} -> ${updateData.whole_packs_count}`);
+              }
             }
           }
         } catch (inventoryError) {
@@ -196,6 +210,7 @@ export class ModeAwareDrugDispensingService {
     data: ((DrugUsageHistory | OrganizationDrugUsageHistory) & {
       drug_name?: string;
       patient_name?: string;
+      primary_diagnosis?: string;
     })[] | null;
     error: string | null
   }> {
@@ -233,7 +248,8 @@ export class ModeAwareDrugDispensingService {
         const enrichedData = data?.map(record => ({
           ...record,
           drug_name: record.organization_drug_inventory?.drug_name,
-          patient_name: record.patient_info?.patient_name
+          patient_name: record.patient_info?.patient_name,
+          primary_diagnosis: record.patient_info?.primary_diagnosis
         }));
 
         console.log('📊 Enriched organization dispensing data:', enrichedData?.length, 'records');
@@ -261,7 +277,8 @@ export class ModeAwareDrugDispensingService {
         const enrichedData = data?.map(record => ({
           ...record,
           drug_name: record.user_drug_inventory?.drug_name,
-          patient_name: record.patient_info?.patient_name
+          patient_name: record.patient_info?.patient_name,
+          primary_diagnosis: record.patient_info?.primary_diagnosis
         }));
 
         return { data: enrichedData || [], error: null };
@@ -363,10 +380,45 @@ export class ModeAwareDrugDispensingService {
           console.error('Failed to record organization usage tracking:', usageTrackingError);
         }
 
-        // Note: We do NOT restore inventory quantity when deleting dispensing records
-        // because deletion represents actual drug consumption/usage
-        // The inventory was already reduced when the drug was dispensed
-        console.log('Drug deletion represents consumption - inventory remains reduced');
+        // Reduce inventory quantity when deleting dispensing records
+        // This represents final consumption of the dispensed drugs
+        if (existingRecord.drug_id) {
+          try {
+            console.log(`🔄 Reducing ${existingRecord.quantity_dispensed} units from organization inventory for drug ID: ${existingRecord.drug_id}`);
+
+            // First get current available quantity
+            const { data: currentInventory, error: fetchError } = await supabase
+              .from('organization_drug_inventory')
+              .select('available_quantity')
+              .eq('id', existingRecord.drug_id)
+              .eq('organization_id', organizationId)
+              .single();
+
+            if (fetchError) {
+              console.error('❌ Error fetching current organization inventory:', fetchError);
+            } else if (currentInventory) {
+              const newQuantity = Math.max(0, currentInventory.available_quantity - existingRecord.quantity_dispensed);
+
+              const { data: updateResult, error: updateError } = await supabase
+                .from('organization_drug_inventory')
+                .update({
+                  available_quantity: newQuantity
+                })
+                .eq('id', existingRecord.drug_id)
+                .eq('organization_id', organizationId)
+                .select('drug_name, available_quantity');
+
+              if (updateError) {
+                console.error('❌ Error reducing organization inventory:', updateError);
+              } else {
+                console.log('✅ Successfully reduced organization inventory:', updateResult);
+                console.log(`🔄 Organization inventory reduced: ${currentInventory.available_quantity} - ${existingRecord.quantity_dispensed} = ${newQuantity}`);
+              }
+            }
+          } catch (inventoryError) {
+            console.error('❌ Failed to reduce organization inventory:', inventoryError);
+          }
+        }
 
         // Delete the record
         const { data: deletedData, error: deleteError, count } = await supabase
@@ -460,10 +512,45 @@ export class ModeAwareDrugDispensingService {
           console.error('Failed to record individual usage tracking:', usageTrackingError);
         }
 
-        // Note: We do NOT restore inventory quantity when deleting dispensing records
-        // because deletion represents actual drug consumption/usage
-        // The inventory was already reduced when the drug was dispensed
-        console.log('Drug deletion represents consumption - inventory remains reduced');
+        // Reduce inventory quantity when deleting dispensing records
+        // This represents final consumption of the dispensed drugs
+        if (existingRecord.drug_id) {
+          try {
+            console.log(`🔄 Reducing ${existingRecord.quantity_dispensed} units from individual inventory for drug ID: ${existingRecord.drug_id}`);
+
+            // First get current available quantity
+            const { data: currentInventory, error: fetchError } = await supabase
+              .from('user_drug_inventory')
+              .select('available_quantity')
+              .eq('id', existingRecord.drug_id)
+              .eq('user_id', user.id)
+              .single();
+
+            if (fetchError) {
+              console.error('❌ Error fetching current individual inventory:', fetchError);
+            } else if (currentInventory) {
+              const newQuantity = Math.max(0, currentInventory.available_quantity - existingRecord.quantity_dispensed);
+
+              const { data: updateResult, error: updateError } = await supabase
+                .from('user_drug_inventory')
+                .update({
+                  available_quantity: newQuantity
+                })
+                .eq('id', existingRecord.drug_id)
+                .eq('user_id', user.id)
+                .select('drug_name, available_quantity');
+
+              if (updateError) {
+                console.error('❌ Error reducing individual inventory:', updateError);
+              } else {
+                console.log('✅ Successfully reduced individual inventory:', updateResult);
+                console.log(`🔄 Individual inventory reduced: ${currentInventory.available_quantity} - ${existingRecord.quantity_dispensed} = ${newQuantity}`);
+              }
+            }
+          } catch (inventoryError) {
+            console.error('❌ Failed to reduce individual inventory:', inventoryError);
+          }
+        }
 
         // Delete the record
         const { data: deletedData, error: deleteError } = await supabase
