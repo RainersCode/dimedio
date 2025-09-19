@@ -92,8 +92,8 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   const [dispensingRecorded, setDispensingRecorded] = useState(false);
   
   // Drug dispensing quantities state
-  const [drugQuantities, setDrugQuantities] = useState<{[key: string]: number}>({});
-  const [drugDispenseUnits, setDrugDispenseUnits] = useState<{[key: string]: 'packs' | 'tablets'}>({});
+  const [drugPackQuantities, setDrugPackQuantities] = useState<{[key: string]: number}>({});
+  const [drugTabletQuantities, setDrugTabletQuantities] = useState<{[key: string]: number}>({});
   
   // Refs for dropdown containers to handle click outside
   const dropdownRefs = useRef<{[key: string]: HTMLDivElement | null}>({});
@@ -258,8 +258,8 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       if (diagnosisToSave.inventory_drugs) {
         diagnosisToSave.inventory_drugs = diagnosisToSave.inventory_drugs.map((drug: any, index: number) => ({
           ...drug,
-          dispense_quantity: drugQuantities[`inventory_${index}`] || 1,
-          dispense_unit: getDispenseUnit(`inventory_${index}`)
+          dispense_quantity: getTotalQuantityForDrug(`inventory_${index}`) || 1,
+          dispense_description: getDispenseDescription(`inventory_${index}`)
         }));
       }
       
@@ -293,19 +293,29 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
         setIsEditing(false);
         setEditedDiagnosis(null);
         
-        // Update drugQuantities and dispenseUnits state with the saved values to ensure consistency
+        // Update drug pack and tablet quantities state with the saved values to ensure consistency
         if (updatedDiagnosis.inventory_drugs) {
-          const updatedQuantities: {[key: string]: number} = {};
-          const updatedUnits: {[key: string]: 'packs' | 'tablets'} = {};
+          const updatedPackQuantities: {[key: string]: number} = {};
+          const updatedTabletQuantities: {[key: string]: number} = {};
           updatedDiagnosis.inventory_drugs.forEach((drug: any, index: number) => {
-            // Only use saved quantity if it has a saved unit (indicating user manually set it)
-            // Otherwise default to 1 pack to override AI calculations
-            const hasManualSetting = drug.dispense_unit !== undefined;
-            updatedQuantities[`inventory_${index}`] = hasManualSetting ? (drug.dispense_quantity || 1) : 1;
-            updatedUnits[`inventory_${index}`] = drug.dispense_unit || 'packs';
+            // For now, default to 1 pack if no description is saved (backward compatibility)
+            // TODO: Parse the dispense_description if available
+            const hasManualSetting = drug.dispense_description !== undefined;
+            if (hasManualSetting) {
+              // Try to parse the description to extract pack and tablet counts
+              // This is a simple implementation - could be enhanced
+              const description = drug.dispense_description || '';
+              const packMatch = description.match(/(\d+)\s+pack/);
+              const tabletMatch = description.match(/(\d+)\s+tablet/);
+              updatedPackQuantities[`inventory_${index}`] = packMatch ? parseInt(packMatch[1]) : 0;
+              updatedTabletQuantities[`inventory_${index}`] = tabletMatch ? parseInt(tabletMatch[1]) : 0;
+            } else {
+              updatedPackQuantities[`inventory_${index}`] = 1; // Default to 1 pack
+              updatedTabletQuantities[`inventory_${index}`] = 0;
+            }
           });
-          setDrugQuantities(updatedQuantities);
-          setDrugDispenseUnits(updatedUnits);
+          setDrugPackQuantities(updatedPackQuantities);
+          setDrugTabletQuantities(updatedTabletQuantities);
         }
       }
     } catch (err) {
@@ -492,10 +502,10 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           
           // Get quantity and unit from saved drug data, state, or fallback to defaults
           const drugKey = `inventory_${index}`;
-          const quantity = drug.dispense_quantity || drugQuantities[drugKey] || 1;
-          const unit = drug.dispense_unit || getDispenseUnit(drugKey);
+          const quantity = drug.dispense_quantity || getTotalQuantityForDrug(drugKey) || 1;
+          const unit = drug.dispense_description || getDispenseDescription(drugKey);
           console.log('📊 Using quantity:', quantity, 'unit:', unit, 'from saved/state (defaults: 1 pack) for dosage:', drug.dosage);
-          console.log('📊 Debug quantities - saved:', drug.dispense_quantity, 'state:', drugQuantities[drugKey], 'final:', quantity);
+          console.log('📊 Debug quantities - saved:', drug.dispense_quantity, 'calculated:', getTotalQuantityForDrug(drugKey), 'final:', quantity);
           
           dispensings.push({
             drugId: matchingInventoryDrug.id,
@@ -508,9 +518,9 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
           console.log('📝 Recording drug without inventory match...');
           // Still record the drug even if not found in inventory
           const drugKey = `inventory_${index}`;
-          const quantity = drug.dispense_quantity || drugQuantities[drugKey] || 1;
-          const unit = drug.dispense_unit || getDispenseUnit(drugKey);
-          console.log('📊 Debug quantities (no inventory match) - saved:', drug.dispense_quantity, 'state:', drugQuantities[drugKey], 'final:', quantity, 'unit:', unit);
+          const quantity = drug.dispense_quantity || getTotalQuantityForDrug(drugKey) || 1;
+          const unit = drug.dispense_description || getDispenseDescription(drugKey);
+          console.log('📊 Debug quantities (no inventory match) - saved:', drug.dispense_quantity, 'calculated:', getTotalQuantityForDrug(drugKey), 'final:', quantity, 'unit:', unit);
           dispensings.push({
             drugId: null, // No inventory drug ID
             drugName: drug.drug_name, // Store the drug name from diagnosis
@@ -572,13 +582,13 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
       const updatedDiagnosisForDispensing = {
         ...currentDiagnosisState,
         inventory_drugs: currentDiagnosisState.inventory_drugs?.map((drug: any, index: number) => {
-          const currentQuantity = drugQuantities[`inventory_${index}`] || 1;
-          const currentUnit = getDispenseUnit(`inventory_${index}`);
-          console.log(`🔍 Drug ${index} (${drug.drug_name}): using quantity ${currentQuantity} ${currentUnit} from state`);
+          const currentQuantity = getTotalQuantityForDrug(`inventory_${index}`) || 1;
+          const currentDescription = getDispenseDescription(`inventory_${index}`);
+          console.log(`🔍 Drug ${index} (${drug.drug_name}): using quantity ${currentQuantity} (${currentDescription}) from state`);
           return {
             ...drug,
             dispense_quantity: currentQuantity,
-            dispense_unit: currentUnit
+            dispense_description: currentDescription
           };
         })
       };
@@ -602,38 +612,59 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   };
 
 
-  const updateDrugQuantity = (drugKey: string, quantity: number) => {
-    setDrugQuantities(prev => ({
+  // Update pack quantity for a drug
+  const updateDrugPackQuantity = (drugKey: string, quantity: number) => {
+    setDrugPackQuantities(prev => ({
       ...prev,
-      [drugKey]: Math.max(1, Math.min(99, quantity)) // Ensure quantity is between 1 and 99
+      [drugKey]: Math.max(0, Math.min(99, quantity)) // Allow 0 for packs
     }));
   };
 
-  const toggleDispenseUnit = (drugKey: string) => {
-    setDrugDispenseUnits(prev => ({
+  // Update tablet quantity for a drug
+  const updateDrugTabletQuantity = (drugKey: string, quantity: number) => {
+    setDrugTabletQuantities(prev => ({
       ...prev,
-      [drugKey]: prev[drugKey] === 'packs' ? 'tablets' : 'packs'
+      [drugKey]: Math.max(0, Math.min(99, quantity)) // Allow 0 for tablets
     }));
   };
 
-  const getDispenseUnit = (drugKey: string) => {
-    return drugDispenseUnits[drugKey] || 'packs'; // Default to packs
+  // Get total quantity for dispensing (in individual units)
+  const getTotalQuantityForDrug = (drugKey: string): number => {
+    const packs = drugPackQuantities[drugKey] || 0;
+    const tablets = drugTabletQuantities[drugKey] || 0;
+
+    // For now, assume each pack contains 1 unit (will need to get actual units_per_pack from inventory)
+    // This will be improved when we have access to the inventory drug data
+    const defaultUnitsPerPack = 1;
+    const totalFromPacks = packs * defaultUnitsPerPack;
+
+    return totalFromPacks + tablets;
   };
 
-  const getDispenseUnitLabel = (drugKey: string) => {
-    const unit = getDispenseUnit(drugKey);
-    const quantity = drugQuantities[drugKey] || 1;
+  // Get dispense description for a drug
+  const getDispenseDescription = (drugKey: string): string => {
+    const packs = drugPackQuantities[drugKey] || 0;
+    const tablets = drugTabletQuantities[drugKey] || 0;
+    const parts: string[] = [];
 
-    if (unit === 'packs') {
-      return quantity === 1 ? 'pack' : 'packs';
-    } else {
-      return 'tablets/ampules';
+    if (packs > 0) {
+      parts.push(`${packs} ${packs === 1 ? 'pack' : 'packs'}`);
     }
+
+    if (tablets > 0) {
+      parts.push(`${tablets} tablet${tablets === 1 ? '' : 's'}`);
+    }
+
+    return parts.length > 0 ? parts.join(' + ') : '1 pack'; // Default to 1 pack if nothing selected
   };
 
-  const getNextDispenseUnit = (drugKey: string) => {
-    return getDispenseUnit(drugKey) === 'packs' ? 'tablets/ampules' : 'packs';
+  // Check if dispense quantity is valid (at least 1 pack or 1 tablet)
+  const isValidDispenseQuantity = (drugKey: string): boolean => {
+    const packs = drugPackQuantities[drugKey] || 0;
+    const tablets = drugTabletQuantities[drugKey] || 0;
+    return packs > 0 || tablets > 0;
   };
+
 
   const updateEditedField = (field: string, value: any) => {
     setEditedDiagnosis((prev: any) => ({
@@ -819,18 +850,25 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
   // Initialize drug quantities and dispense units when diagnosis result is set
   useEffect(() => {
     if (diagnosisResult && diagnosisResult.inventory_drugs) {
-      const initialQuantities: {[key: string]: number} = {};
-      const initialUnits: {[key: string]: 'packs' | 'tablets'} = {};
+      const initialPackQuantities: {[key: string]: number} = {};
+      const initialTabletQuantities: {[key: string]: number} = {};
       diagnosisResult.inventory_drugs.forEach((drug: any, index: number) => {
-        // Only use saved quantity if it has a saved unit (indicating user manually set it)
-        // Otherwise default to 1 pack to override AI calculations
-        const hasManualSetting = drug.dispense_unit !== undefined;
-        initialQuantities[`inventory_${index}`] = hasManualSetting ? (drug.dispense_quantity || 1) : 1;
-        // Use saved unit or default to packs
-        initialUnits[`inventory_${index}`] = drug.dispense_unit || 'packs';
+        // Parse saved dispense description or default to 1 pack
+        const hasManualSetting = drug.dispense_description !== undefined;
+        if (hasManualSetting) {
+          // Try to parse the description to extract pack and tablet counts
+          const description = drug.dispense_description || '';
+          const packMatch = description.match(/(\d+)\s+pack/);
+          const tabletMatch = description.match(/(\d+)\s+tablet/);
+          initialPackQuantities[`inventory_${index}`] = packMatch ? parseInt(packMatch[1]) : 0;
+          initialTabletQuantities[`inventory_${index}`] = tabletMatch ? parseInt(tabletMatch[1]) : 0;
+        } else {
+          initialPackQuantities[`inventory_${index}`] = 1; // Default to 1 pack
+          initialTabletQuantities[`inventory_${index}`] = 0;
+        }
       });
-      setDrugQuantities(initialQuantities);
-      setDrugDispenseUnits(initialUnits);
+      setDrugPackQuantities(initialPackQuantities);
+      setDrugTabletQuantities(initialTabletQuantities);
     }
   }, [diagnosisResult]);
 
@@ -2170,31 +2208,59 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                         </div>
                         <div>
                           <label className="font-medium text-green-800 block mb-2">Dispense Quantity:</label>
-                          <div className="flex items-center gap-3 p-3 border border-green-300 rounded-lg bg-green-50">
-                            <input
-                              type="number"
-                              min="1"
-                              max="99"
-                              value={drugQuantities[`inventory_${index}`] || 1}
-                              onChange={(e) => updateDrugQuantity(`inventory_${index}`, parseInt(e.target.value) || 1)}
-                              className="w-16 px-2 py-1 border border-green-300 rounded text-green-800 text-center font-semibold text-lg"
-                            />
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => toggleDispenseUnit(`inventory_${index}`)}
-                                className="flex items-center gap-1 text-green-800 font-semibold hover:bg-green-200 px-3 py-2 rounded-md transition-colors border border-green-400 bg-white shadow-sm"
-                                title={`Click to cycle units: ${getDispenseUnitLabel(`inventory_${index}`)} → ${getNextDispenseUnit(`inventory_${index}`)}`}
-                              >
-                                <span>{getDispenseUnitLabel(`inventory_${index}`)}</span>
-                                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                </svg>
-                              </button>
-                              <span className="text-xs text-green-600 font-medium">
-                                Click to cycle units
-                              </span>
+                          <div className="space-y-3 p-3 border border-green-300 rounded-lg bg-green-50">
+                            {/* Packs */}
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="99"
+                                  value={drugPackQuantities[`inventory_${index}`] || 0}
+                                  onChange={(e) => updateDrugPackQuantity(`inventory_${index}`, parseInt(e.target.value) || 0)}
+                                  className="w-16 px-2 py-1 border border-green-300 rounded text-green-800 text-center font-semibold"
+                                />
+                                <span className="text-green-800 font-medium">
+                                  {(drugPackQuantities[`inventory_${index}`] || 0) === 1 ? 'pack' : 'packs'}
+                                </span>
+                              </div>
                             </div>
+
+                            {/* Plus sign */}
+                            <div className="flex items-center justify-center">
+                              <span className="text-green-600 font-bold text-lg">+</span>
+                            </div>
+
+                            {/* Tablets */}
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="99"
+                                  value={drugTabletQuantities[`inventory_${index}`] || 0}
+                                  onChange={(e) => updateDrugTabletQuantity(`inventory_${index}`, parseInt(e.target.value) || 0)}
+                                  className="w-16 px-2 py-1 border border-green-300 rounded text-green-800 text-center font-semibold"
+                                />
+                                <span className="text-green-800 font-medium">tablets/ampules</span>
+                              </div>
+                            </div>
+
+                            {/* Total display */}
+                            {isValidDispenseQuantity(`inventory_${index}`) && (
+                              <div className="pt-2 border-t border-green-300">
+                                <div className="text-xs text-green-700">
+                                  <span className="font-medium">Total: </span>
+                                  <span className="text-green-800 font-semibold">{getDispenseDescription(`inventory_${index}`)}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {!isValidDispenseQuantity(`inventory_${index}`) && (
+                              <div className="text-xs text-red-600 font-medium">
+                                Select at least 1 pack or 1 tablet
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center">
@@ -2263,34 +2329,44 @@ export default function DiagnosisForm({ onDiagnosisComplete, initialComplaint = 
                           <div className="flex items-center gap-2 mt-3 pt-2 border-t border-green-200">
                             <label className="font-medium text-green-800">Will dispense:</label>
                             {isEditing ? (
-                              <div className="flex items-center gap-3 p-2 border border-green-300 rounded-lg bg-green-50">
-                                <input
-                                  type="number"
-                                  min="1"
-                                  max="99"
-                                  value={drugQuantities[`inventory_${index}`] || 1}
-                                  onChange={(e) => updateDrugQuantity(`inventory_${index}`, parseInt(e.target.value) || 1)}
-                                  className="w-14 px-2 py-1 border border-green-300 rounded text-green-800 font-semibold text-center"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => toggleDispenseUnit(`inventory_${index}`)}
-                                  className="flex items-center gap-1 text-green-800 font-semibold hover:bg-green-200 px-2 py-1 rounded transition-colors border border-green-400 bg-white shadow-sm text-sm"
-                                  title={`Click to cycle units: ${getDispenseUnitLabel(`inventory_${index}`)} → ${getNextDispenseUnit(`inventory_${index}`)}`}
-                                >
-                                  <span>{getDispenseUnitLabel(`inventory_${index}`)}</span>
-                                  <svg className="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                  </svg>
-                                </button>
+                              <div className="space-y-2 p-2 border border-green-300 rounded-lg bg-green-50">
+                                {/* Packs */}
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="99"
+                                    value={drugPackQuantities[`inventory_${index}`] || 0}
+                                    onChange={(e) => updateDrugPackQuantity(`inventory_${index}`, parseInt(e.target.value) || 0)}
+                                    className="w-12 px-1 py-1 border border-green-300 rounded text-green-800 text-center font-semibold text-sm"
+                                  />
+                                  <span className="text-green-800 font-medium text-sm">
+                                    {(drugPackQuantities[`inventory_${index}`] || 0) === 1 ? 'pack' : 'packs'}
+                                  </span>
+                                  <span className="text-green-600 font-bold text-sm">+</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="99"
+                                    value={drugTabletQuantities[`inventory_${index}`] || 0}
+                                    onChange={(e) => updateDrugTabletQuantity(`inventory_${index}`, parseInt(e.target.value) || 0)}
+                                    className="w-12 px-1 py-1 border border-green-300 rounded text-green-800 text-center font-semibold text-sm"
+                                  />
+                                  <span className="text-green-800 font-medium text-sm">tablets</span>
+                                </div>
+                                {!isValidDispenseQuantity(`inventory_${index}`) && (
+                                  <div className="text-xs text-red-600 font-medium">
+                                    Select at least 1 pack or 1 tablet
+                                  </div>
+                                )}
                               </div>
                             ) : (
                               <div className="flex items-center gap-2">
                                 <span className="px-2 py-1 bg-green-50 border border-green-300 rounded text-green-800 font-medium">
-                                  {drugQuantities[`inventory_${index}`] || 1} {getDispenseUnitLabel(`inventory_${index}`)}
+                                  {getDispenseDescription(`inventory_${index}`)}
                                 </span>
-                                {(drugQuantities[`inventory_${index}`] || 1) === 1 && (
-                                  <span className="text-xs text-green-600">(default quantity)</span>
+                                {!isValidDispenseQuantity(`inventory_${index}`) && (
+                                  <span className="text-xs text-red-600">(no quantity selected)</span>
                                 )}
                               </div>
                             )}

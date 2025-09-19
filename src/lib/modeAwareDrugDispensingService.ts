@@ -6,6 +6,41 @@ import type { UserWorkingMode } from '@/contexts/MultiOrgUserModeContext';
 import type { DrugUsageHistory } from '@/types/database';
 import type { OrganizationDrugUsageHistory } from '@/types/organization';
 
+// Helper function to parse dispensing info from notes
+function parseDispenseInfoFromNotes(notes: string, fallbackQuantity?: number): { packs: number, tablets: number, totalUnits: number } {
+  if (!notes) {
+    // If no notes, assume the fallback quantity represents individual units/tablets
+    const tablets = fallbackQuantity || 0;
+    return { packs: 0, tablets, totalUnits: tablets };
+  }
+
+  // Look for new format: "Dispensed: X pack + Y tablets" or "Dispensed: X packs + Y tablets"
+  const multiUnitMatch = notes.match(/Dispensed:\s*(\d+)\s*pack(?:s)?\s*\+\s*(\d+)\s*(?:tablets?|ampules?)/i);
+  if (multiUnitMatch) {
+    const packs = parseInt(multiUnitMatch[1]) || 0;
+    const tablets = parseInt(multiUnitMatch[2]) || 0;
+    return { packs, tablets, totalUnits: packs + tablets };
+  }
+
+  // Look for single pack pattern: "Dispensed: X packs" or "Dispensed: X pack"
+  const packsOnlyMatch = notes.match(/Dispensed:\s*(\d+)\s*pack(?:s)?(?:\s|\.)/i);
+  if (packsOnlyMatch) {
+    const packs = parseInt(packsOnlyMatch[1]) || 0;
+    return { packs, tablets: 0, totalUnits: packs };
+  }
+
+  // Look for single tablets pattern: "Dispensed: X tablets" or "Dispensed: X ampules"
+  const tabletsOnlyMatch = notes.match(/Dispensed:\s*(\d+)\s*(?:tablets?|ampules?)/i);
+  if (tabletsOnlyMatch) {
+    const tablets = parseInt(tabletsOnlyMatch[1]) || 0;
+    return { packs: 0, tablets, totalUnits: tablets };
+  }
+
+  // Fallback to quantity_dispensed if available (treat as individual units)
+  const tablets = fallbackQuantity || 0;
+  return { packs: 0, tablets, totalUnits: tablets };
+}
+
 export interface ModeAwareDispensingRecord {
   drugId: string | null;
   drugName: string;
@@ -70,6 +105,9 @@ async function updateOrganizationInventoryWithPackTracking(
             const totalUnitsFromOpenedPacks = packsToOpen * unitsPerPack;
             newLooseUnits = totalUnitsFromOpenedPacks - remainingToSubtract;
             console.log(`📦 Opened ${packsToOpen} packs (${totalUnitsFromOpenedPacks} units), used ${remainingToSubtract} units, ${newLooseUnits} loose units remaining`);
+
+            // Reset remainingToSubtract to 0 since we've fulfilled the request
+            remainingToSubtract = 0;
           } else {
             // Not enough inventory
             return { success: false, error: `Insufficient inventory. Need ${quantityToSubtract} units, have ${currentWholePacks * unitsPerPack + currentLooseUnits} units.` };
@@ -826,10 +864,14 @@ export class ModeAwareDrugDispensingService {
 
         if (drugName) {
           if (!drugStats.has(drugName)) {
-            drugStats.set(drugName, { total_quantity: 0, total_dispensings: 0 });
+            drugStats.set(drugName, { total_packs: 0, total_tablets: 0, total_dispensings: 0 });
           }
           const stats = drugStats.get(drugName);
-          stats.total_quantity += record.quantity_dispensed || 0;
+
+          // Parse the actual dispensed amounts from notes
+          const dispensed = parseDispenseInfoFromNotes(record.notes || '', record.quantity_dispensed);
+          stats.total_packs += dispensed.packs;
+          stats.total_tablets += dispensed.tablets;
           stats.total_dispensings += 1;
         }
       });
@@ -837,7 +879,9 @@ export class ModeAwareDrugDispensingService {
       const topDrugs = Array.from(drugStats.entries())
         .map(([drug_name, stats]) => ({
           drug_name,
-          total_quantity: stats.total_quantity,
+          total_packs: stats.total_packs,
+          total_tablets: stats.total_tablets,
+          total_quantity: stats.total_packs + stats.total_tablets, // For backward compatibility and sorting
           total_dispensings: stats.total_dispensings
         }))
         .sort((a, b) => b.total_quantity - a.total_quantity)

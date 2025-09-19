@@ -3,6 +3,41 @@ import { InventoryUsageService } from './inventoryUsageService';
 import { calculateTotalIndividualUnits } from './drugInventory';
 import type { DrugUsageHistory, UserDrugInventory } from '@/types/database';
 
+// Helper function to parse dispensing info from notes
+function parseDispenseInfoFromNotes(notes: string, fallbackQuantity?: number): { packs: number, tablets: number, totalUnits: number } {
+  if (!notes) {
+    // If no notes, assume the fallback quantity represents individual units/tablets
+    const tablets = fallbackQuantity || 0;
+    return { packs: 0, tablets, totalUnits: tablets };
+  }
+
+  // Look for new format: "Dispensed: X pack + Y tablets" or "Dispensed: X packs + Y tablets"
+  const multiUnitMatch = notes.match(/Dispensed:\s*(\d+)\s*pack(?:s)?\s*\+\s*(\d+)\s*(?:tablets?|ampules?)/i);
+  if (multiUnitMatch) {
+    const packs = parseInt(multiUnitMatch[1]) || 0;
+    const tablets = parseInt(multiUnitMatch[2]) || 0;
+    return { packs, tablets, totalUnits: packs + tablets };
+  }
+
+  // Look for single pack pattern: "Dispensed: X packs" or "Dispensed: X pack"
+  const packsOnlyMatch = notes.match(/Dispensed:\s*(\d+)\s*pack(?:s)?(?:\s|\.)/i);
+  if (packsOnlyMatch) {
+    const packs = parseInt(packsOnlyMatch[1]) || 0;
+    return { packs, tablets: 0, totalUnits: packs };
+  }
+
+  // Look for single tablets pattern: "Dispensed: X tablets" or "Dispensed: X ampules"
+  const tabletsOnlyMatch = notes.match(/Dispensed:\s*(\d+)\s*(?:tablets?|ampules?)/i);
+  if (tabletsOnlyMatch) {
+    const tablets = parseInt(tabletsOnlyMatch[1]) || 0;
+    return { packs: 0, tablets, totalUnits: tablets };
+  }
+
+  // Fallback to quantity_dispensed if available (treat as individual units)
+  const tablets = fallbackQuantity || 0;
+  return { packs: 0, tablets, totalUnits: tablets };
+}
+
 export interface DrugDispensingRecord extends DrugUsageHistory {
   drug_name?: string;
   dosage_form?: string;
@@ -18,6 +53,8 @@ export interface DispensingStats {
   total_value: number;
   top_drugs: Array<{
     drug_name: string;
+    total_packs?: number;
+    total_tablets?: number;
     total_quantity: number;
     total_dispensings: number;
   }>;
@@ -73,6 +110,7 @@ async function updateInventoryWithPackTracking(
             newWholePacks -= packsToOpen;
             const totalUnitsFromPacks = packsToOpen * unitsPerPack;
             newLooseUnits = totalUnitsFromPacks - remainingToSubtract;
+            remainingToSubtract = 0; // Reset to 0 since we've fulfilled the request
           } else {
             // Not enough inventory
             return { success: false, error: `Insufficient inventory. Need ${quantityToSubtract} units, have ${calculateTotalIndividualUnits(currentWholePacks, currentLooseUnits, unitsPerPack)} units.` };
@@ -476,10 +514,19 @@ export class DrugDispensingService {
       const drugUsage = new Map();
       history.forEach(record => {
         const drugName = record.user_drug_inventory?.drug_name || 'Unknown';
-        const existing = drugUsage.get(drugName) || { total_quantity: 0, total_dispensings: 0 };
+        const existing = drugUsage.get(drugName) || { total_packs: 0, total_tablets: 0, total_dispensings: 0 };
+
+        // Parse the actual dispensed amounts from notes
+        const dispensed = parseDispenseInfoFromNotes(record.notes || '', record.quantity_dispensed);
+
+        const newTotalPacks = existing.total_packs + dispensed.packs;
+        const newTotalTablets = existing.total_tablets + dispensed.tablets;
+
         drugUsage.set(drugName, {
           drug_name: drugName,
-          total_quantity: existing.total_quantity + record.quantity_dispensed,
+          total_packs: newTotalPacks,
+          total_tablets: newTotalTablets,
+          total_quantity: newTotalPacks + newTotalTablets,
           total_dispensings: existing.total_dispensings + 1
         });
       });

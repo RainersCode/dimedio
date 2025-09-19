@@ -1466,7 +1466,25 @@ export default function DrugDispensing() {
                         <p className="text-sm text-slate-600">{drug.total_dispensings} dispensing{drug.total_dispensings !== 1 ? 's' : ''}</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-semibold text-slate-900">{drug.total_quantity} pack{drug.total_quantity !== 1 ? 's' : ''}</p>
+                        {drug.total_packs !== undefined && drug.total_tablets !== undefined ? (
+                          <div className="space-y-1">
+                            {drug.total_packs > 0 && (
+                              <p className="font-semibold text-slate-900 text-sm">
+                                {drug.total_packs} pack{drug.total_packs !== 1 ? 's' : ''}
+                              </p>
+                            )}
+                            {drug.total_tablets > 0 && (
+                              <p className="font-semibold text-emerald-600 text-sm">
+                                {drug.total_tablets} tablet{drug.total_tablets !== 1 ? 's' : ''}
+                              </p>
+                            )}
+                            {drug.total_packs === 0 && drug.total_tablets === 0 && (
+                              <p className="font-semibold text-slate-400 text-sm">No data</p>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="font-semibold text-slate-900">{drug.total_quantity} pack{drug.total_quantity !== 1 ? 's' : ''}</p>
+                        )}
                       </div>
                     </div>
                   ))}
